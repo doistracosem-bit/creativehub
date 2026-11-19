@@ -69,11 +69,17 @@ export async function handleCopilot(request: Request): Promise<Response> {
     const { email } = await user.json();
     if (typeof email !== 'string' || !email) return reply(403, { error: 'A conta precisa de um e-mail vinculado.' });
 
-    const membership = await fetch(new URL('/rest/v1/rpc/is_member', url), {
-      headers, signal: AbortSignal.timeout(8000),
-    });
+    const normalizedEmail = email.toLowerCase();
+    const members = new URL('/rest/v1/team_members', url);
+    members.searchParams.set('select', 'email');
+    members.searchParams.set('email', `eq.${normalizedEmail}`);
+    members.searchParams.set('limit', '1');
+    const membership = await fetch(members, { headers, signal: AbortSignal.timeout(8000) });
     if (!membership.ok) throw new Error('Falha ao verificar a equipe.');
-    if (await membership.json() !== true) return reply(403, { error: 'A geração está disponível para membros da equipe.' });
+    const rows = await membership.json();
+    if (!Array.isArray(rows) || !rows.some((row) => row?.email === normalizedEmail)) {
+      return reply(403, { error: 'A geração está disponível para membros da equipe.' });
+    }
   } catch {
     return reply(503, { error: 'Não foi possível verificar seu acesso. Tente novamente.' });
   }
