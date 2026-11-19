@@ -67,7 +67,7 @@ export async function downloadReferenceImage(path: string, signal: AbortSignal):
   return data;
 }
 
-export async function discardUnsavedReferenceImage(source: string) {
+export async function discardUnlinkedReferenceImage(source: string) {
   const path = storedReferenceImagePath(source);
   if (path) await supabase.storage.from(bucketName).remove([path]);
 }

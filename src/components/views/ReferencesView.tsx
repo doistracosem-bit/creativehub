@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ExternalLink, Image as ImageIcon, LayoutTemplate, Palette, Pencil, Plus } from 'lucide-react';
+import { ExternalLink, Image as ImageIcon, LayoutTemplate, Palette, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { normalizeNiche } from '../../../supabase/functions/_shared/briefing';
 import { extractReferencePalette } from '../../lib/referenceImages';
@@ -7,15 +7,20 @@ import { extractedReferencePalette, listReferenceStyles, referenceKind, referenc
 import type { Reference, ReferenceKind } from '../../types';
 import { ReferenceEditor } from './ReferenceEditor';
 import { ReferenceImage } from './ReferenceImage';
+import { Folha } from '../ui/Folha';
 
 export function ReferencesView() {
-  const { references, updateReference } = useApp();
+  const { references, updateReference, deleteReference } = useApp();
   const [kind, setKind] = useState<ReferenceKind>('post');
   const [style, setStyle] = useState('');
   const [niche, setNiche] = useState('');
   const [editor, setEditor] = useState<{ reference: Reference | null } | null>(null);
   const [status, setStatus] = useState('');
   const [analyzing, setAnalyzing] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Reference | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const deleteLock = useRef(false);
   const paletteLock = useRef(false);
   const styles = listReferenceStyles(references);
   const section = references.filter((item) => referenceKind(item) === kind);
@@ -47,6 +52,29 @@ export function ReferencesView() {
     } finally {
       paletteLock.current = false;
       setAnalyzing(null);
+    }
+  }
+
+  function closeDelete() {
+    if (deleteLock.current) return;
+    setPendingDelete(null);
+    setDeleteError('');
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete || deleteLock.current) return;
+    deleteLock.current = true;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await deleteReference(pendingDelete.id);
+      setPendingDelete(null);
+      setStatus(`“${pendingDelete.title}” foi excluída da biblioteca.`);
+    } catch {
+      setDeleteError('Não foi possível excluir a referência. Tente novamente.');
+    } finally {
+      deleteLock.current = false;
+      setDeleting(false);
     }
   }
 
@@ -149,12 +177,32 @@ export function ReferencesView() {
                       <Palette size={14} aria-hidden="true" /> {analyzing === item.id ? 'Extraindo…' : 'Extrair paleta'}
                     </button>
                   )}
+                  <button type="button" className="btn-fantasma !text-red-700 hover:!bg-red-50"
+                    aria-label={`Excluir ${item.title}`} disabled={Boolean(editor || analyzing || pendingDelete)}
+                    onClick={() => { setDeleteError(''); setPendingDelete(item); }}>
+                    <Trash2 size={14} aria-hidden="true" /> Excluir
+                  </button>
                 </div>
               </div>
             </article>
           );
         })}
       </div>
+      <Folha aberta={Boolean(pendingDelete)} aoFechar={closeDelete} titulo="Excluir referência?" largura="md"
+        rodape={
+          <div className="flex w-full flex-wrap justify-end gap-2">
+            <button type="button" autoFocus className="btn-fantasma" disabled={deleting} onClick={closeDelete}>Cancelar</button>
+            <button type="button" className="btn-primario !bg-red-700 hover:!bg-red-800" disabled={deleting}
+              onClick={() => void confirmDelete()}>
+              <Trash2 size={16} aria-hidden="true" /> {deleting ? 'Excluindo…' : 'Excluir referência'}
+            </button>
+          </div>
+        }>
+        <p className="text-sm text-text-muted break-words">
+          A referência <strong className="text-text-main">“{pendingDelete?.title}”</strong> será excluída permanentemente da biblioteca da equipe.
+        </p>
+        {deleteError && <p role="alert" className="mt-3 text-sm text-red-700">{deleteError}</p>}
+      </Folha>
     </div>
   );
 }

@@ -19,7 +19,7 @@ import {
   MOCK_CLIENTS 
 } from '../data/mockData';
 import { supabase, isMockMode } from '../lib/supabase';
-import { discardUnsavedReferenceImage, saveReferenceImage } from '../lib/referenceImages';
+import { discardUnlinkedReferenceImage, saveReferenceImage } from '../lib/referenceImages';
 
 interface AppContextType {
   projects: Project[];
@@ -38,6 +38,7 @@ interface AppContextType {
   deletePublication: (id: string) => Promise<void>;
   addReference: (input: Omit<CreateReferenceInput, 'image_url'>, image: File | string) => Promise<Reference>;
   updateReference: (id: string, fields: Partial<Omit<CreateReferenceInput, 'image_url'>>, image?: File | string) => Promise<Reference>;
+  deleteReference: (id: string) => Promise<void>;
   addClient: (name: string, niche: string, extra?: Partial<Client>) => Client;
   updateClient: (id: string, patch: Partial<Client>) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
@@ -376,7 +377,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .single();
 
     if (error) {
-      await discardUnsavedReferenceImage(input.image_url).catch(() => undefined);
+      await discardUnlinkedReferenceImage(input.image_url).catch(() => undefined);
       throw new Error('Não foi possível salvar a referência. Tente novamente.');
     }
     const created = data as Reference;
@@ -398,12 +399,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const { data, error } = await supabase.from('references').update(changes).eq('id', id).select().single();
     if (error) {
-      if (imageUrl) await discardUnsavedReferenceImage(imageUrl).catch(() => undefined);
+      if (imageUrl) await discardUnlinkedReferenceImage(imageUrl).catch(() => undefined);
       throw new Error('Não foi possível atualizar a referência. Tente novamente.');
     }
     const updated = data as Reference;
     setReferences((previous) => previous.map((item) => item.id === id ? updated : item));
     return updated;
+  };
+
+  const deleteReference: AppContextType['deleteReference'] = async (id) => {
+    if (isMockMode) {
+      saveDemoReferences((stored) => stored.filter((item) => item.id !== id));
+      return;
+    }
+
+    const { data, error } = await supabase.from('references').delete().eq('id', id).select('image_url').maybeSingle();
+    if (error) throw new Error('Não foi possível excluir a referência. Tente novamente.');
+    setReferences((previous) => previous.filter((item) => item.id !== id));
+
+    if (data?.image_url) {
+      // O Storage permite a limpeza do arquivo do próprio usuário quando ele fica sem referências.
+      void discardUnlinkedReferenceImage(data.image_url).catch(() => undefined);
+    }
   };
 
   // Ações: Clientes
@@ -514,6 +531,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deletePublication,
         addReference,
         updateReference,
+        deleteReference,
         addClient,
         updateClient,
         deleteClient,
