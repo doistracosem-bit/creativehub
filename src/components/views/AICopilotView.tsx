@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Sparkles, 
   Wand2, 
@@ -14,8 +14,11 @@ import {
   Lightbulb, 
   FileJson, 
   Clock, 
-  CheckCircle2
+  CheckCircle2,
+  RefreshCw,
+  Contact,
 } from 'lucide-react';
+import { useUI } from '../../context/UIContext';
 import { useApp } from '../../context/AppContext';
 import { generateDesignBriefing, exportPhotoshopJson } from '../../services/aiService';
 import type { BriefingFormat, BriefingGoal, DesignBriefing } from '../../types';
@@ -38,13 +41,32 @@ const FORMAT_OPTIONS: { id: BriefingFormat; label: string; ratio: string; iconRa
 
 const GOAL_OPTIONS: BriefingGoal[] = [
   'Autoridade',
-  'Vendas/Black Friday',
+  'Vendas',
   'Educativo',
+  'Engajamento',
+  'Lançamento',
   'Rebranding',
 ];
 
 export const AICopilotView: React.FC = () => {
-  const { addPublication } = useApp();
+  const { clients, projects, publications, references } = useApp();
+  const { abrirPost } = useUI();
+  const [clienteId, setClienteId] = useState<string>('');
+  const [projetoId, setProjetoId] = useState<string>('');
+  const [erroIA, setErroIA] = useState<string>('');
+  const cliente = clients.find((c) => c.id === clienteId) || null;
+  const projetosDoCliente = cliente ? projects.filter((p) => p.client_name === cliente.name) : [];
+
+  // Ao escolher o cliente, usa o nicho dele
+  const escolherCliente = (id: string) => {
+    setClienteId(id); setProjetoId('');
+    const c = clients.find((x) => x.id === id);
+    if (c?.niche && c.niche !== 'Geral') {
+      const conhecido = NICHE_OPTIONS.find((n) => n.toLowerCase() === c.niche.toLowerCase());
+      if (conhecido) { setSelectedNiche(conhecido); setIsCustomNicheActive(false); setCustomNicheInput(''); }
+      else { setIsCustomNicheActive(true); setCustomNicheInput(c.niche); setSelectedNiche(c.niche); }
+    }
+  };
 
   // Estados de Entrada
   const [selectedNiche, setSelectedNiche] = useState<string>('Odontologia');
@@ -52,12 +74,8 @@ export const AICopilotView: React.FC = () => {
   const [customNicheInput, setCustomNicheInput] = useState<string>('');
   const [selectedFormat, setSelectedFormat] = useState<BriefingFormat>('CARROSSEL_4x5');
   const [selectedGoal, setSelectedGoal] = useState<BriefingGoal>('Autoridade');
-  const [userPrompt, setUserPrompt] = useState<string>(
-    'Criar uma linha editorial cinematográfica mostrando o perigo do clareamento caseiro sem danificar o esmalte.'
-  );
-  const [referenceImage, setReferenceImage] = useState<string | null>(
-    'https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&w=600&q=80'
-  );
+  const [userPrompt, setUserPrompt] = useState<string>('');
+  const [referenceImage, setReferenceImage] = useState<string | null>(null);
 
   // Estados de Saída & Interação
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -83,27 +101,12 @@ export const AICopilotView: React.FC = () => {
     setToastState({ isOpen: true, message, type });
   };
 
-  // Gera briefing inicial ao montar
-  useEffect(() => {
-    let isMounted = true;
-    generateDesignBriefing({
-      niche: 'Odontologia',
-      format: 'CARROSSEL_4x5',
-      goal: 'Autoridade',
-      userPrompt: '5 Erros no clareamento dental que destroem o esmalte',
-    }).then((briefing) => {
-      if (isMounted) {
-        setCurrentBriefing(briefing);
-      }
-    });
-    return () => { isMounted = false; };
-  }, []);
-
   // Manipulador de Geração com IA
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const gerar = async (variacao = false) => {
     setIsGenerating(true);
-
+    setErroIA('');
+    const projeto = projects.find((p) => p.id === projetoId);
+    const nomeCliente = cliente?.name;
     try {
       const generated = await generateDesignBriefing({
         niche: selectedNiche,
@@ -111,18 +114,30 @@ export const AICopilotView: React.FC = () => {
         goal: selectedGoal,
         referenceImageUrl: referenceImage || undefined,
         userPrompt,
+        variacao,
+        cliente: cliente ? { name: cliente.name, niche: cliente.niche, instagram: cliente.instagram, notes: cliente.notes } : null,
+        projeto: projeto ? `${projeto.project_name} (etapa ${projeto.stage}, ${projeto.progress}% concluído)` : null,
+        postsRecentes: nomeCliente
+          ? publications.filter((p) => p.client_name === nomeCliente)
+              .sort((a, b) => +new Date(b.scheduled_for) - +new Date(a.scheduled_for))
+              .slice(0, 8).map((p) => p.headline)
+          : [],
+        referencias: references
+          .filter((r) => !selectedNiche || (r.niche || '').toLowerCase().includes(selectedNiche.toLowerCase().split(' ')[0]))
+          .slice(0, 4).map((r) => `${r.title}: ${r.notes}`),
       });
-
       setCurrentBriefing(generated);
       setActiveSlideIndex(0);
-      showToast('Briefing gerado com sucesso pelo Creative Copilot!', 'copilot');
+      showToast(variacao ? 'Nova versão gerada!' : 'Briefing gerado!', 'copilot');
     } catch (err) {
       console.error(err);
-      showToast('Erro ao gerar briefing. Usando modelo de contingência.', 'info');
+      setErroIA(err instanceof Error ? err.message : 'Não foi possível gerar o briefing.');
     } finally {
       setIsGenerating(false);
     }
   };
+
+  const handleGenerate = (e: React.FormEvent) => { e.preventDefault(); gerar(false); };
 
   // Upload de Imagem de Referência
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,32 +152,20 @@ export const AICopilotView: React.FC = () => {
     }
   };
 
-  // Ação 1: Agendar no Calendário
-  const handleScheduleToCalendar = async () => {
+  // Ação 1: Levar para o calendário (abre o post já preenchido para revisar e salvar)
+  const handleScheduleToCalendar = () => {
     if (!currentBriefing) return;
-
-    try {
-      const scheduledDate = new Date();
-      scheduledDate.setHours(18, 0, 0, 0); // Horário nobre às 18:00
-
-      await addPublication({
-        project_id: null,
-        client_name: currentBriefing.niche,
-        format: selectedFormat === 'CARROSSEL_4x5' ? 'Carrossel 4:5' : selectedFormat === 'STORY_9x16' ? 'Stories 9:16' : 'Post 1:1',
-        headline: currentBriefing.magnetic_hook,
-        copy_text: currentBriefing.caption,
-        status: 'CRIANDO',
-        scheduled_for: scheduledDate.toISOString(),
-        assets_ready: false,
-      });
-
-      showToast(
-        `Agendado com sucesso no Calendário para hoje às 18:00 com status 'CRIANDO'!`,
-        'success'
-      );
-    } catch {
-      showToast('Erro ao agendar no calendário.', 'info');
-    }
+    const quando = new Date(Date.now() + 86400000);
+    quando.setHours(18, 0, 0, 0);
+    abrirPost(null, {
+      client_name: currentBriefing.client_name || cliente?.name || undefined,
+      project_id: projetoId || null,
+      format: selectedFormat === 'CARROSSEL_4x5' ? 'Carrossel Instagram' : selectedFormat === 'STORY_9x16' ? 'Stories Interativos' : 'Post Estático',
+      headline: currentBriefing.magnetic_hook,
+      copy_text: `${currentBriefing.caption}\n\n${currentBriefing.hashtags.join(' ')}`,
+      status: 'CRIANDO',
+      scheduled_for: quando.toISOString(),
+    });
   };
 
   // Ação 2: Exportar para Photoshop / Illustrator
@@ -202,13 +205,13 @@ export const AICopilotView: React.FC = () => {
         <div className="z-10">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent-primary/30 border border-accent-glow/40 text-accent-glow text-xs font-bold mb-2">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Creative AI Copilot &bull; Photoshop / Illustrator Bridge</span>
+            <span>Copilot IA &bull; Gemini</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-text-main tracking-tight">
-            Laboratório de Automação de Design
+            Copilot de briefings
           </h2>
           <p className="text-xs sm:text-sm text-text-muted mt-1 max-w-2xl leading-relaxed">
-            Configure seu nicho, objetivo e diretrizes. O motor gera o roteiro slide a slide, paleta cromática e exporta a árvore de camadas em JSON para seus scripts de design.
+            Escolha o cliente e diga o que precisa. A IA usa a ficha do cliente, o projeto e os últimos posts para montar gancho, slides, direção de arte, paleta e legenda.
           </p>
         </div>
 
@@ -242,11 +245,35 @@ export const AICopilotView: React.FC = () => {
             <span className="text-[10px] font-mono text-text-muted uppercase">Input Studio</span>
           </div>
 
+          {/* 0. Cliente e projeto: dão contexto real para a IA */}
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-text-main mb-1.5 flex items-center gap-1.5"><Contact className="w-3.5 h-3.5 text-accent-glow" />Cliente</label>
+              <select className="campo !py-2 !text-sm" value={clienteId} onChange={(e) => escolherCliente(e.target.value)}>
+                <option value="">Sem cliente (só nicho)</option>
+                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-text-main block mb-1.5">Projeto</label>
+              <select className="campo !py-2 !text-sm" value={projetoId} onChange={(e) => setProjetoId(e.target.value)} disabled={!cliente}>
+                <option value="">{cliente ? 'Nenhum' : 'Escolha um cliente'}</option>
+                {projetosDoCliente.map((p) => <option key={p.id} value={p.id}>{p.project_name}</option>)}
+              </select>
+            </div>
+          </div>
+          {cliente && (
+            <p className="text-[11px] text-text-muted -mt-2">
+              A IA vai usar o nicho, as anotações e o Instagram de <b className="text-text-main">{cliente.name}</b> e evitar repetir os últimos posts dele.
+              {!cliente.notes && ' Dica: preencha as anotações do cliente (tom de voz, público, cores) para briefings ainda mais certeiros.'}
+            </p>
+          )}
+
           {/* 1. Nicho com Chips Visuais & Opção + Outro Nicho */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-text-main">
-                1. Selecione o Nicho do Cliente
+                1. Nicho
               </label>
               {isCustomNicheActive && (
                 <span className="text-[10px] font-mono text-accent-glow">
@@ -467,15 +494,18 @@ export const AICopilotView: React.FC = () => {
             {isGenerating ? (
               <>
                 <Wand2 className="w-4 h-4 animate-spin" />
-                <span>Processando Semiótica &amp; Camadas...</span>
+                <span>Gerando briefing…</span>
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>Gerar Briefing Completo com IA</span>
+                <span>Gerar briefing com IA</span>
               </>
             )}
           </button>
+          {erroIA && (
+            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-2xl px-4 py-3">{erroIA}</p>
+          )}
         </form>
 
         {/* =====================================================================
@@ -502,8 +532,30 @@ export const AICopilotView: React.FC = () => {
                     {currentBriefing.campaign_title}
                   </h3>
                   <h4 className="text-lg md:text-xl font-extrabold text-text-main mt-1 leading-snug">
-                    "{currentBriefing.magnetic_hook}"
+                    {currentBriefing.magnetic_hook}
                   </h4>
+                  {currentBriefing.strategy && (
+                    <p className="text-sm text-text-muted mt-2 leading-relaxed">{currentBriefing.strategy}</p>
+                  )}
+                  {!!currentBriefing.alternative_hooks?.length && (
+                    <div className="mt-3">
+                      <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wide">Outros ganchos (toque para usar)</span>
+                      <div className="flex flex-col gap-1.5 mt-1.5">
+                        {currentBriefing.alternative_hooks.map((h) => (
+                          <button key={h} type="button"
+                            onClick={() => setCurrentBriefing((b) => b && ({
+                              ...b,
+                              magnetic_hook: h,
+                              alternative_hooks: [b.magnetic_hook, ...(b.alternative_hooks || []).filter((x) => x !== h)],
+                              slides: b.slides.map((s, i) => (i === 0 ? { ...s, headline: h } : s)),
+                            }))}
+                            className="text-left text-sm px-3 py-2 rounded-xl bg-canvas hover:bg-gelo border border-border-subtle text-text-main transition-colors cursor-pointer">
+                            {h}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Barra de Ações de Saída: Agendar + Exportar JSON */}
@@ -514,7 +566,16 @@ export const AICopilotView: React.FC = () => {
                       className="px-3.5 py-2 rounded-xl bg-accent-primary hover:bg-accent-hover text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm shadow-accent-primary/25 cursor-pointer transition-all active:scale-95"
                     >
                       <CalendarPlus className="w-3.5 h-3.5" />
-                      <span>Agendar no Calendário</span>
+                      <span>Levar para o calendário</span>
+                    </button>
+
+                    <button
+                      onClick={() => gerar(true)}
+                      disabled={isGenerating}
+                      className="px-3.5 py-2 rounded-xl bg-surface hover:bg-surface-hover text-text-main border border-border-subtle text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn('w-3.5 h-3.5', isGenerating && 'animate-spin')} />
+                      <span>Outra versão</span>
                     </button>
 
                     <button
@@ -737,9 +798,9 @@ export const AICopilotView: React.FC = () => {
           ) : (
             <div className="p-12 rounded-bento bg-surface border border-dashed border-border-subtle text-center space-y-3">
               <Lightbulb className="w-8 h-8 text-accent-glow mx-auto opacity-70 animate-pulse" />
-              <h4 className="text-base font-bold text-text-main">Aguardando Parâmetros</h4>
+              <h4 className="text-base font-bold text-text-main">{isGenerating ? 'Criando o briefing…' : 'Pronto para criar'}</h4>
               <p className="text-xs text-text-muted max-w-sm mx-auto leading-relaxed">
-                Preencha os campos ao lado e clique em "Gerar Briefing Completo com IA" para ativar o motor heurístico de design.
+                Escolha o cliente, o formato e o objetivo, conte o que você quer e toque em “Gerar briefing com IA”.
               </p>
             </div>
           )}
