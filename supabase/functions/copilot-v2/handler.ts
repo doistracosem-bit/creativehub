@@ -92,7 +92,7 @@ export async function handleCopilot(request: Request): Promise<Response> {
   }
 
   const key = Deno.env.get('GEMINI_API_KEY');
-  const preferredModel = Deno.env.get('GEMINI_MODEL')?.trim() || 'gemini-3.6-flash';
+  const preferredModel = Deno.env.get('GEMINI_MODEL')?.trim() || 'gemini-3.5-flash-lite';
   if (!key) return reply(503, { error: 'Configure GEMINI_API_KEY nos segredos do Supabase.' });
   const { requestId, image, format, ...creativeContext } = context;
   const { width, height, label, slides } = FORMATS[format];

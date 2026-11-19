@@ -40,7 +40,7 @@ Se quiser um domínio próprio (ex.: `app.doistracos.com.br`), adicione em **Ver
 
 ## Passo 2. Ativar o Copilot IA
 
-1. Em **Supabase → Edge Functions → Secrets**, cadastre a chave do Google AI Studio como `GEMINI_API_KEY`. O modelo padrão é `gemini-3.6-flash`. Use o segredo opcional `GEMINI_MODEL` para selecionar outro modelo Gemini que aceite imagens e saída estruturada.
+1. Em **Supabase → Edge Functions → Secrets**, cadastre a chave do Google AI Studio como `GEMINI_API_KEY`. O modelo padrão é `gemini-3.5-flash-lite`. Use o segredo opcional `GEMINI_MODEL` para selecionar outro modelo Gemini que aceite imagens e saída estruturada.
 2. Autentique a CLI do Supabase e execute estes comandos na pasta do projeto. Substitua `<ref-do-projeto>` pela referência do seu projeto Supabase.
 
    ```powershell
@@ -55,7 +55,7 @@ Se uma versão anterior do site foi publicada com `VITE_AI_API_KEY` ou `VITE_GEM
 
 A geração envia o briefing, a referência selecionada e a imagem anexada ao Gemini. O botão **Baixar briefing JSON** exporta texto e estrutura de camadas para scripts. A prévia é uma simulação de composição.
 
-Documentação oficial do [modelo Gemini](https://aistudio.google.com/docs/models/gemini-3.6-flash), dos [segredos do Supabase](https://supabase.com/docs/guides/functions/secrets) e da [verificação de tokens](https://supabase.com/docs/guides/functions/auth-headers).
+Documentação oficial do [modelo Gemini](https://aistudio.google.com/docs/models/gemini-3.5-flash-lite), dos [segredos do Supabase](https://supabase.com/docs/guides/functions/secrets) e da [verificação de tokens](https://supabase.com/docs/guides/functions/auth-headers).
 
 ## Passo 3. Equipe usando
 
