@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-feature-settings: 'tnum' 0;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #eef4fc;
+    color: #0a1f3d;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .font-mono { font-variant-numeric: tabular-nums; letter-spacing: 0; }
+
+  input, select, textarea { color-scheme: light; }
+}
+
+@layer components {
+  .campo {
+    @apply w-full px-4 py-2.5 rounded-xl text-sm text-text-main placeholder:text-text-muted/60 bg-surface border border-border-subtle outline-none transition-all focus:border-accent-glow focus:ring-4 focus:ring-accent-glow/10;
+  }
+  .rotulo {
+    @apply block text-xs font-semibold text-text-muted mb-1.5;
+  }
+  .btn-primario {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold bg-accent-primary text-white hover:bg-accent-hover active:scale-[.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer;
+  }
+  .btn-secundario {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold bg-surface text-text-main border border-border-subtle hover:border-accent-glow/40 hover:bg-surface-hover active:scale-[.98] transition-all cursor-pointer;
+  }
+  .btn-fantasma {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-text-muted hover:text-text-main hover:bg-gelo transition-all cursor-pointer;
+  }
+  .cartao {
+    @apply bg-surface border border-border-subtle rounded-bento shadow-suave;
+  }
+}
+
+/* Barra de rolagem clara */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cfdcef; border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: #8ec5ef; }
+* { scrollbar-width: thin; scrollbar-color: #cfdcef transparent; }
+
+@keyframes entrar { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+@keyframes surgir { from { opacity: 0; } }
+@keyframes subir-folha { from { transform: translateY(100%); } }
+.anim-entrar { animation: entrar .22s cubic-bezier(.2,.8,.2,1); }
+.anim-surgir { animation: surgir .18s ease; }
+@media (max-width: 639px) { .anim-folha { animation: subir-folha .28s cubic-bezier(.2,.8,.2,1); } }
+@media (min-width: 640px) { .anim-folha { animation: entrar .22s cubic-bezier(.2,.8,.2,1); } }

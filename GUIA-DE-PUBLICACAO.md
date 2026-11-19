@@ -1,0 +1,85 @@
+# Creative Hub · Dois Traços: guia de publicação
+
+O que mudou nesta versão:
+
+- **Visual novo** com a identidade da Dois Traços (azul-marinho `#0b3974`, azul-gelo `#e8f1fd`, logo e mascote).
+- **Pop-up do post:** toque em qualquer post (no quadro, no mês ou no painel) para ver tudo sobre ele. Dá para editar, excluir, copiar a legenda, mudar a etapa e marcar como publicado.
+- **Calendário em duas visões:** **Quadro** (etapas, com arrastar e soltar) e **Mês**.
+- **Login e equipe:** só quem está na equipe entra. O admin adiciona e remove pessoas pelo app.
+- **Responsável e lembrete em cada post**, com **notificação no celular** mesmo com o app fechado.
+- **Segurança:** antes o banco estava aberto para qualquer pessoa. Agora só a equipe lê e altera os dados.
+
+Tudo roda em planos gratuitos: **Supabase** (banco, login e o robô de lembretes) e **Vercel** (hospedagem). Nova também a aba **Clientes**: lista, ficha com projetos e posts, editar e excluir.
+
+---
+
+## Supabase: já configurado ✅
+
+Projeto **app-lembrete** (`epeuikrywfsgpdvepdrx`), configurado pelo Claude via conector:
+
+- Tabelas (projetos, posts, clientes, referências, equipe e aparelhos) com segurança: só quem está na equipe acessa.
+- Robô **lembretes** publicado e agendado a cada 5 minutos (pg_cron). As chaves das notificações foram geradas pelo próprio Supabase e ficam no cofre (Vault). Ninguém precisa copiar nem colar chave.
+- O app busca sozinho a chave pública das notificações. Não precisa de `VITE_VAPID_PUBLIC_KEY`.
+
+Falta só você fazer, no painel do Supabase, em **Authentication → URL Configuration**:
+
+- **Site URL:** o endereço do app na Vercel (depois do passo 7).
+- **Redirect URLs:** o mesmo endereço e `http://localhost:5173`.
+- Se não quiser exigir confirmação de e-mail no primeiro acesso: **Authentication → Providers → Email → desligar "Confirm email"**.
+
+## Passo 1. Publicar o app na Vercel
+
+1. Suba a pasta `creative-hub` para um repositório no GitHub (o arquivo `.env` **não** vai junto, e é assim mesmo).
+2. Em **vercel.com**, clique em **Add New → Project** e importe o repositório. A Vercel detecta o Vite sozinha.
+3. Em **Environment Variables**, cadastre:
+   - `VITE_SUPABASE_URL` = `https://epeuikrywfsgpdvepdrx.supabase.co`
+   - `VITE_SUPABASE_ANON_KEY` = `sb_publishable_1rOg6ZlG_LfT1qUZ_KPJgg_lCMYMOZn` (chave pública, pode ficar no app)
+4. Clique em **Deploy**. Depois, coloque o endereço da Vercel no Supabase (Authentication → URL Configuration).
+
+Se quiser um domínio próprio (ex.: `app.doistracos.com.br`), adicione em **Vercel → Settings → Domains** e também no Supabase (Authentication → URL Configuration).
+
+## Passo 2. Equipe usando
+
+1. Entre no app com o seu e-mail. A primeira vez é por **"Primeiro acesso"**, onde você cria a senha.
+2. Em **Equipe e avisos**, adicione cada pessoa (nome e e-mail).
+3. Cada pessoa precisa:
+   - **No Android ou no computador:** abrir o endereço no Chrome, tocar no menu ⋮ e em **Instalar app**, entrar e, em **Equipe e avisos**, tocar em **Ativar lembretes**.
+   - **No iPhone (iOS 16.4 ou mais novo):** abrir no **Safari**, tocar em **Compartilhar → Adicionar à Tela de Início**, abrir o app **pelo ícone**, entrar e tocar em **Ativar lembretes**.
+4. Ao ativar, chega uma notificação de teste na hora.
+
+---
+
+## Como os lembretes funcionam
+
+- Cada post tem um **responsável** e um **lembrete**: só na hora, 15 min antes, 1 h antes, 3 h antes ou 1 dia antes.
+- Com lembrete antecipado, a pessoa recebe **dois avisos**: o antecipado e o **"Hora de postar"**.
+- Post **sem responsável** avisa a **equipe toda**.
+- Post marcado como **Publicado** não avisa mais.
+- Se a data ou a hora mudar, os avisos são reprogramados sozinhos.
+- O robô confere a cada 5 minutos, então o aviso pode chegar até ~5 min depois do horário.
+- Tocar na notificação abre o app direto no post.
+
+## Se algo não funcionar
+
+| Problema | O que fazer |
+|---|---|
+| "Acesso ainda não liberado" | O e-mail não está na equipe ou foi digitado diferente. Confira em **Equipe e avisos** (ou na tabela `team_members`). |
+| Notificação não chega | Confira se a pessoa ativou os lembretes **naquele aparelho**. No iPhone, o app precisa ter sido aberto pelo ícone da Tela de Início. |
+| Quer ver se o robô está rodando | No SQL Editor: `select * from cron.job_run_details order by start_time desc limit 10;` |
+| Ver os registros do robô | Supabase → **Edge Functions → lembretes → Logs**. |
+| Dados não aparecem | Veja o aviso vermelho no topo do app. Normalmente é o `schema.sql` que não rodou inteiro. |
+
+## Comandos úteis
+
+| Comando | O que faz |
+|---|---|
+| `npm install` | Instala as dependências (só na primeira vez) |
+| `npm run dev` | Abre o app no seu computador (sem `.env` abre em modo demonstração) |
+| `npm run dev:host` | Igual ao anterior, mas acessível pelo celular na mesma rede Wi-Fi |
+| `npm run build` | Gera a versão de produção (a Vercel faz isso sozinha) |
+
+## Personalizar
+
+- **Cores:** `tailwind.config.js` (`marinho`, `gelo`, `accent-glow`…).
+- **Logo, mascote e ícones:** pasta `public/` e `public/brand/`.
+- **Formatos de post e opções de lembrete:** `src/components/modals/PostModal.tsx` e `src/lib/datas.ts`.
