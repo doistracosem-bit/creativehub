@@ -1,6 +1,5 @@
 import type { DesignBriefing, BriefingParams, SlideItem, BriefingFormat } from '../types';
-
-const API_KEY = import.meta.env.VITE_AI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '';
+import { supabase, isMockMode } from '../lib/supabase';
 
 // Configurações de dimensão por formato para Photoshop/Illustrator
 const FORMAT_SPECS: Record<BriefingFormat, { width: number; height: number; dpi: number; label: string }> = {
@@ -324,7 +323,8 @@ const NICHE_PRESETS: Record<string, NichePreset> = {
 // FUNÇÃO DE GERAÇÃO: MOTOR IA + FALLBACK HEURÍSTICO RESILIENTE
 // ==============================================================================
 
-export async function generateDesignBriefing(params: BriefingParams): Promise<DesignBriefing> {
+/** Modo demonstração (sem Supabase): modelos prontos por nicho. Com o Supabase, quem gera é o Gemini. */
+function briefingDemonstracao(params: BriefingParams): DesignBriefing {
   const normalizedNiche = params.niche.toLowerCase();
   
   // Tenta encontrar preset mais próximo
@@ -398,45 +398,8 @@ export async function generateDesignBriefing(params: BriefingParams): Promise<De
     };
   }
 
-  // Se houver chave configurada e conexão, tentamos a API real (com timeout de proteção)
-  if (API_KEY && API_KEY.length > 20) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-      // Chamada genérica para API de LLM (ex: Gemini ou OpenAI)
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Atue como Diretor de Arte Sênior. Gere um JSON estrito para um briefing com nicho: ${params.niche}, formato: ${params.format}, objetivo: ${params.goal}, prompt: ${params.userPrompt}`
-            }]
-          }]
-        })
-      });
-
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const json = await res.json();
-        const contentText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (contentText) {
-          // Se retornou com sucesso da API externa, tenta parsear ou enriquece
-          console.info('⚡ [AI Service] Resposta gerada com sucesso via LLM API');
-        }
-      }
-    } catch {
-      console.warn('⚡ [AI Service] Falha ou timeout na API externa. Acionando Fallback Heurístico Sênior.');
-    }
-  }
-
   // Gera o briefing combinando heurística sênior com parâmetros do usuário
-  const selectedHook = params.userPrompt.trim()
-    ? `"${params.userPrompt.slice(0, 80)}..." — ${matchedPreset.hooks[0]}`
-    : matchedPreset.hooks[0];
+  const selectedHook = matchedPreset.hooks[Math.floor(Math.random() * matchedPreset.hooks.length)];
 
   const specs = FORMAT_SPECS[params.format] || FORMAT_SPECS.CARROSSEL_4x5;
 
@@ -489,6 +452,9 @@ export async function generateDesignBriefing(params: BriefingParams): Promise<De
     format: params.format,
     goal: params.goal,
     magnetic_hook: selectedHook,
+    alternative_hooks: matchedPreset.hooks.filter((h) => h !== selectedHook),
+    strategy: 'Modo demonstração: este briefing vem de um modelo pronto. Conecte o Supabase e a chave do Gemini para gerar briefings sob medida para cada cliente.',
+    client_name: params.cliente?.name ?? null,
     color_palette: matchedPreset.palette,
     typography: matchedPreset.typography,
     slides,
@@ -499,6 +465,111 @@ export async function generateDesignBriefing(params: BriefingParams): Promise<De
   };
 
   return briefing;
+}
+
+// ==============================================================================
+// GERAÇÃO COM IA (Gemini via função "copilot" do Supabase)
+// ==============================================================================
+
+type RespostaIA = {
+  campaign_title: string; magnetic_hook: string; alternative_hooks?: string[]; strategy?: string;
+  color_palette: DesignBriefing['color_palette']; typography: DesignBriefing['typography'];
+  slides: { role: SlideItem['role']; headline: string; body_text: string; visual_direction: string }[];
+  caption: string; hashtags: string[];
+};
+
+/** Reduz o print de referência para no máximo 1024px (envio mais rápido e barato) */
+async function reduzirImagem(dataUrl: string): Promise<string> {
+  if (!dataUrl.startsWith('data:')) return '';
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const escala = Math.min(1, 1024 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * escala); c.height = Math.round(img.height * escala);
+      c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve('');
+    img.src = dataUrl;
+  });
+}
+
+function montarBriefing(r: RespostaIA, params: BriefingParams): DesignBriefing {
+  const specs = FORMAT_SPECS[params.format] || FORMAT_SPECS.CARROSSEL_4x5;
+  const pal = { ...r.color_palette, extra: r.color_palette.extra ?? [] };
+  const slides: SlideItem[] = r.slides.map((sl, idx) => ({
+    slide_number: idx + 1,
+    role: sl.role,
+    headline: sl.headline,
+    body_text: sl.body_text,
+    visual_direction: sl.visual_direction,
+    layers: [
+      { name: `Slide_${idx + 1}_Background`, type: 'shape', content: pal.background },
+      { name: `Slide_${idx + 1}_Visual_Asset`, type: 'image', content: sl.visual_direction },
+      { name: `Slide_${idx + 1}_Headline`, type: 'text', content: sl.headline },
+      { name: `Slide_${idx + 1}_BodyCopy`, type: 'text', content: sl.body_text },
+      { name: `Slide_${idx + 1}_Accent`, type: 'shape', content: pal.primary_accent },
+    ],
+  }));
+  const hashtags = (r.hashtags || []).map((h) => (h.startsWith('#') ? h : `#${h}`));
+  return {
+    id: `briefing-${Date.now()}`,
+    campaign_title: r.campaign_title,
+    niche: params.niche,
+    format: params.format,
+    goal: params.goal,
+    magnetic_hook: r.magnetic_hook,
+    alternative_hooks: r.alternative_hooks ?? [],
+    strategy: r.strategy,
+    client_name: params.cliente?.name ?? null,
+    color_palette: pal,
+    typography: r.typography,
+    slides,
+    caption: r.caption,
+    hashtags,
+    photoshop_metadata: {
+      dimensions: { width: specs.width, height: specs.height, dpi: specs.dpi },
+      artboard_name: `${(params.cliente?.name || params.niche).toUpperCase().replace(/\s+/g, '_')}_${params.format}`,
+      layers_tree: slides.map((s) => ({
+        artboard_index: s.slide_number,
+        name: `Artboard_${s.slide_number}_${s.role}`,
+        headline: s.headline,
+        body: s.body_text,
+        colors: { canvas: pal.background, primary: pal.primary_accent, glow: pal.glow_accent, text: pal.text },
+        fonts: { title: r.typography.heading_font, body: r.typography.body_font },
+        layers: s.layers,
+      })),
+    },
+    created_at: new Date().toISOString(),
+  };
+}
+
+export async function generateDesignBriefing(params: BriefingParams): Promise<DesignBriefing> {
+  if (isMockMode) {
+    await new Promise((r) => setTimeout(r, 600));
+    return briefingDemonstracao(params);
+  }
+  const imagem = params.referenceImageUrl ? await reduzirImagem(params.referenceImageUrl) : '';
+  const { data, error } = await supabase.functions.invoke('copilot', {
+    body: {
+      niche: params.niche, format: params.format, goal: params.goal, userPrompt: params.userPrompt,
+      cliente: params.cliente ?? null, projeto: params.projeto ?? null,
+      postsRecentes: params.postsRecentes ?? [], referencias: params.referencias ?? [],
+      variacao: !!params.variacao, imagem: imagem || undefined,
+    },
+  });
+  if (error) {
+    // Tenta ler a mensagem amigável que a função devolveu
+    let msg = 'Não foi possível gerar o briefing agora.';
+    try {
+      const ctx = (error as { context?: Response }).context;
+      if (ctx && typeof ctx.json === 'function') msg = (await ctx.json())?.erro || msg;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  if (!data?.briefing) throw new Error(data?.erro || 'A IA não devolveu um briefing.');
+  return montarBriefing(data.briefing as RespostaIA, params);
 }
 
 // ==============================================================================
