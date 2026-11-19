@@ -8,7 +8,8 @@ export const isSupabaseConfigured = Boolean(
   supabaseUrl &&
   supabaseAnonKey &&
   supabaseUrl.startsWith('http') &&
-  !supabaseUrl.includes('placeholder') &&
+  !/placeholder|seu-projeto/i.test(supabaseUrl) &&
+  supabaseAnonKey !== 'sua-chave-anon-publica' &&
   supabaseUrl !== 'https://your-project.supabase.co'
 );
 

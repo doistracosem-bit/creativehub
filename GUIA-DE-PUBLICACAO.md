@@ -38,7 +38,26 @@ Falta só você fazer, no painel do Supabase, em **Authentication → URL Config
 
 Se quiser um domínio próprio (ex.: `app.doistracos.com.br`), adicione em **Vercel → Settings → Domains** e também no Supabase (Authentication → URL Configuration).
 
-## Passo 2. Equipe usando
+## Passo 2. Ativar o Copilot IA
+
+1. Em **Supabase → Edge Functions → Secrets**, cadastre a chave do Google AI Studio como `GEMINI_API_KEY`. O modelo padrão é `gemini-3.6-flash`. Use o segredo opcional `GEMINI_MODEL` para selecionar outro modelo Gemini que aceite imagens e saída estruturada.
+2. Autentique a CLI do Supabase e execute estes comandos na pasta do projeto. Substitua `<ref-do-projeto>` pela referência do seu projeto Supabase.
+
+   ```powershell
+   supabase login
+   supabase functions deploy copilot-v2 --project-ref <ref-do-projeto> --no-verify-jwt
+   ```
+
+   A opção desativa a verificação legada do gateway para esta função. O próprio `copilot-v2` valida o token no Supabase Auth e consulta a tabela `team_members` antes de chamar o Gemini. Use a CLI para incluir a pasta compartilhada `supabase/functions/_shared`.
+3. Publique o frontend atualizado com as mesmas variáveis públicas do Supabase. Entre com uma conta da equipe e gere um briefing em **Copilot IA**. O resultado deve mostrar **Gerado com Gemini**. Sem Supabase, o botão **Ver exemplo** abre uma campanha fictícia.
+
+Se uma versão anterior do site foi publicada com `VITE_AI_API_KEY` ou `VITE_GEMINI_API_KEY`, revogue a chave usada naquela versão, remova essas variáveis da hospedagem e use uma nova chave somente no Supabase.
+
+A geração envia o briefing, a referência selecionada e a imagem anexada ao Gemini. O botão **Baixar briefing JSON** exporta texto e estrutura de camadas para scripts. A prévia é uma simulação de composição.
+
+Documentação oficial do [modelo Gemini](https://aistudio.google.com/docs/models/gemini-3.6-flash), dos [segredos do Supabase](https://supabase.com/docs/guides/functions/secrets) e da [verificação de tokens](https://supabase.com/docs/guides/functions/auth-headers).
+
+## Passo 3. Equipe usando
 
 1. Entre no app com o seu e-mail. A primeira vez é por **"Primeiro acesso"**, onde você cria a senha.
 2. Em **Equipe e avisos**, adicione cada pessoa (nome e e-mail).
@@ -77,6 +96,7 @@ Se quiser um domínio próprio (ex.: `app.doistracos.com.br`), adicione em **Ver
 | `npm run dev` | Abre o app no seu computador (sem `.env` abre em modo demonstração) |
 | `npm run dev:host` | Igual ao anterior, mas acessível pelo celular na mesma rede Wi-Fi |
 | `npm run build` | Gera a versão de produção (a Vercel faz isso sozinha) |
+| `npm run test:copilot` | Valida o contrato do briefing e o tratamento das respostas do Gemini com chamadas simuladas (Node.js 24) |
 
 ## Personalizar
 
