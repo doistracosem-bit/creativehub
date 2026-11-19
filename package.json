@@ -8,6 +8,7 @@
     "dev:host": "vite --host",
     "build": "tsc -b && vite build",
     "test:copilot": "node --test tests/copilot.test.mjs",
+    "test:traffic": "node --test tests/traffic.test.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },

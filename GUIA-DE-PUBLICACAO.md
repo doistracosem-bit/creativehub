@@ -57,6 +57,14 @@ A geração envia o briefing, a referência selecionada e a imagem anexada ao Ge
 
 Documentação oficial do [modelo Gemini](https://aistudio.google.com/docs/models/gemini-3.5-flash-lite), dos [segredos do Supabase](https://supabase.com/docs/guides/functions/secrets) e da [verificação de tokens](https://supabase.com/docs/guides/functions/auth-headers).
 
+## Ativar Traffic Intelligence AI
+
+1. Aplique a migração `supabase/migrations/20261119222542_traffic_intelligence.sql` no Supabase do Creative Hub.
+2. Publique a função com `supabase functions deploy traffic-intelligence --project-ref <ref-do-projeto> --no-verify-jwt`. A própria função valida a sessão no Supabase Auth e confere o acesso ao cliente antes de ler ou gravar. Ela usa o mesmo segredo `GEMINI_API_KEY` do Copilot.
+3. Publique o frontend atualizado. Abra **Traffic Intelligence** pela barra lateral ou pelo menu **Mais** no celular.
+
+Os relatórios ficam no Supabase. O botão **Gerar recomendações** envia ao Gemini os indicadores, o período, a versão do playbook e as restrições da análise. Nomes de clientes e criativos e dados de contato ficam no Creative Hub. O módulo usa as permissões da equipe para clientes já cadastrados.
+
 ## Passo 3. Equipe usando
 
 1. Entre no app com o seu e-mail. A primeira vez é por **"Primeiro acesso"**, onde você cria a senha.

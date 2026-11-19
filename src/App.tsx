@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import type { NavTab, Project, Publication } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -18,7 +18,8 @@ import { useApp } from './context/AppContext';
 import { useAuth } from './context/AuthContext';
 import { useLembretesLocais } from './lib/notificacoes';
 
-const ABAS: NavTab[] = ['dashboard', 'calendar', 'projects', 'clients', 'references', 'ai-copilot', 'settings'];
+const ABAS: NavTab[] = ['dashboard', 'calendar', 'projects', 'clients', 'references', 'ai-copilot', 'traffic', 'settings'];
+const TrafficIntelligenceView = lazy(() => import('./components/views/TrafficIntelligenceView'));
 
 export function App() {
   const { publications, isMockMode, error } = useApp();
@@ -93,6 +94,11 @@ export function App() {
               {currentTab === 'clients' && <ClientsView />}
               {currentTab === 'references' && <ReferencesView />}
               {currentTab === 'ai-copilot' && <AICopilotView />}
+              {currentTab === 'traffic' && (
+                <Suspense fallback={<p className="cartao p-5 text-sm text-text-muted" role="status">Carregando Traffic Intelligence…</p>}>
+                  <TrafficIntelligenceView />
+                </Suspense>
+              )}
               {currentTab === 'settings' && <SettingsView />}
             </main>
           </div>

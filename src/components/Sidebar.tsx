@@ -1,6 +1,6 @@
 import React from 'react';
 import { useState } from 'react';
-import { LayoutDashboard, Calendar, FolderKanban, Sparkles, Image as ImageIcon, Users, LogOut, Plus, Contact, MoreHorizontal } from 'lucide-react';
+import { Activity, LayoutDashboard, Calendar, FolderKanban, Sparkles, Image as ImageIcon, Users, LogOut, Plus, Contact, MoreHorizontal } from 'lucide-react';
 import { Folha } from './ui/Folha';
 import type { NavTab } from '../types';
 import { cn } from '../lib/utils';
@@ -20,6 +20,7 @@ const navItems: { id: NavTab; label: string; curto: string; icon: React.ElementT
   { id: 'projects', label: 'Projetos', curto: 'Projetos', icon: FolderKanban },
   { id: 'clients', label: 'Clientes', curto: 'Clientes', icon: Contact },
   { id: 'ai-copilot', label: 'Copilot IA', curto: 'IA', icon: Sparkles },
+  { id: 'traffic', label: 'Traffic Intelligence', curto: 'Tráfego', icon: Activity },
   { id: 'references', label: 'Referências', curto: 'Refs', icon: ImageIcon },
   { id: 'settings', label: 'Equipe e avisos', curto: 'Equipe', icon: Users },
 ];
@@ -35,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   return (
     <>
       {/* ===== Computador: barra lateral ===== */}
-      <aside className="hidden md:flex flex-col w-64 shrink-0 h-screen sticky top-0 bg-surface border-r border-border-subtle px-4 py-6">
+      <aside className="hidden md:flex flex-col w-64 shrink-0 h-screen sticky top-0 overflow-y-auto bg-surface border-r border-border-subtle px-4 py-6">
         <button onClick={() => setActiveTab('dashboard')} className="px-2 mb-8 cursor-pointer self-start" title="Início">
           <img src={MARCA.logoEscuro} alt="Dois Traços" className="h-8 w-auto" />
         </button>

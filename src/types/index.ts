@@ -6,7 +6,7 @@ export type Stage = 'BRIEFING' | 'PRODUCAO' | 'REVISAO' | 'CONCLUIDO';
 
 export type PublicationStatus = 'IDEIA' | 'CRIANDO' | 'APROVADO' | 'AGENDADO' | 'POSTADO';
 
-export type NavTab = 'dashboard' | 'calendar' | 'projects' | 'clients' | 'references' | 'ai-copilot' | 'settings';
+export type NavTab = 'dashboard' | 'calendar' | 'projects' | 'clients' | 'references' | 'ai-copilot' | 'traffic' | 'settings';
 
 export const STATUS_LABEL: Record<PublicationStatus, string> = {
   IDEIA: 'Ideia',
