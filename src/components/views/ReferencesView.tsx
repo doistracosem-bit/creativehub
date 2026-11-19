@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Image as ImageIcon, 
   Tag, 
   Palette, 
   Sparkles, 
   Plus, 
-  Filter 
+  Filter,
+  UploadCloud,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { referenceFileError, referenceImageTypes } from '../../lib/referenceImages';
+import { ReferenceImage } from './ReferenceImage';
 
 export const ReferencesView: React.FC = () => {
   const { references, addReference } = useApp();
@@ -15,9 +18,17 @@ export const ReferencesView: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newNiche, setNewNiche] = useState('Odontologia');
+  const [imageMode, setImageMode] = useState<'file' | 'link'>('file');
+  const [imageFile, setImageFile] = useState<{ file: File; preview: string } | null>(null);
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newNotes, setNewNotes] = useState('');
-  const [newTags, setNewTags] = useState('minimalismo, clean, luz natural');
+  const [newTags, setNewTags] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const preview = imageFile?.preview;
+
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
   const niches = ['ALL', ...Array.from(new Set(references.map((r) => r.niche)))];
 
@@ -27,27 +38,64 @@ export const ReferencesView: React.FC = () => {
 
   const handleAddReference = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim() || !newImageUrl.trim()) return;
-
-    await addReference({
-      title: newTitle,
-      niche: newNiche,
-      image_url: newImageUrl,
-      notes: newNotes,
-      tags: newTags.split(',').map(t => t.trim()).filter(Boolean),
-      ai_insights: {
-        color_palette: ['#06090E', '#2563EB', '#38BDF8'],
-        visual_weight: 'Personalizado',
-        typography: 'Inter / Sans-serif contemporânea',
-        key_takeaway: 'Adicionado pelo criativo no workspace.',
-      },
-    });
-
-    setIsAdding(false);
-    setNewTitle('');
-    setNewImageUrl('');
-    setNewNotes('');
+    if (savingRef.current) return;
+    if (!newTitle.trim() || !newNiche.trim()) {
+      setError('Preencha o título e o nicho.');
+      return;
+    }
+    const image = imageMode === 'file' ? imageFile?.file : newImageUrl.trim();
+    if (!image) {
+      setError(imageMode === 'file' ? 'Selecione uma imagem para enviar.' : 'Informe o link direto da imagem.');
+      return;
+    }
+    savingRef.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await addReference({
+        title: newTitle.trim(),
+        niche: newNiche.trim(),
+        notes: newNotes.trim(),
+        tags: [...new Set(newTags.split(',').map((tag) => tag.trim()).filter(Boolean))],
+        ai_insights: {},
+      }, image);
+      setSelectedNiche('ALL');
+      setIsAdding(false);
+      setNewTitle('');
+      setImageFile(null);
+      setNewImageUrl('');
+      setNewNotes('');
+      setNewTags('');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível salvar a referência. Tente novamente.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
+
+  function selectImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    setError('');
+    if (!file) {
+      setImageFile(null);
+      return;
+    }
+    const problem = referenceFileError(file);
+    if (problem) {
+      event.target.value = '';
+      setImageFile(null);
+      setError(problem);
+      return;
+    }
+    setImageFile({ file, preview: URL.createObjectURL(file) });
+  }
+
+  function closeForm() {
+    setIsAdding(false);
+    setImageFile(null);
+    setError('');
+  }
 
   return (
     <div className="space-y-6">
@@ -83,7 +131,8 @@ export const ReferencesView: React.FC = () => {
           </div>
 
           <button
-            onClick={() => setIsAdding(!isAdding)}
+            onClick={() => isAdding ? closeForm() : setIsAdding(true)}
+            disabled={saving}
             className="px-4 py-2 text-xs font-semibold rounded-xl bg-accent-primary hover:bg-accent-hover text-white flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -94,7 +143,7 @@ export const ReferencesView: React.FC = () => {
 
       {/* Quick Add Form Drawer */}
       {isAdding && (
-        <form onSubmit={handleAddReference} className="p-6 rounded-bento bg-surface border border-accent-primary/40 space-y-4 shadow-suave animate-in fade-in">
+        <form onSubmit={handleAddReference} aria-busy={saving} className="p-4 sm:p-6 rounded-bento bg-surface border border-accent-primary/40 space-y-4 shadow-suave">
           <div className="flex items-center justify-between border-b border-border-subtle pb-3">
             <h3 className="text-sm font-bold text-text-main flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-accent-glow" />
@@ -102,79 +151,120 @@ export const ReferencesView: React.FC = () => {
             </h3>
             <button
               type="button"
-              onClick={() => setIsAdding(false)}
+              onClick={closeForm}
+              disabled={saving}
               className="text-xs text-text-muted hover:text-text-main"
             >
               Fechar
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="text-xs text-text-muted block mb-1">Título da Referência</label>
-              <input
-                type="text"
-                required
-                placeholder="Ex: Lookbook Brutalista"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main outline-none focus:border-accent-glow"
-              />
+          <fieldset disabled={saving} className="space-y-4 min-w-0">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="reference-title" className="rotulo">Título da referência</label>
+                <input
+                  id="reference-title"
+                  type="text"
+                  required
+                  placeholder="Ex: Lookbook Brutalista"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main outline-none focus:border-accent-glow"
+                />
+              </div>
+              <div>
+                <label htmlFor="reference-niche" className="rotulo">Nicho</label>
+                <input
+                  id="reference-niche"
+                  type="text"
+                  required
+                  placeholder="Ex: Moda Urbana / Odonto"
+                  value={newNiche}
+                  onChange={(e) => setNewNiche(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main outline-none focus:border-accent-glow"
+                />
+              </div>
             </div>
-            <div>
-              <label className="text-xs text-text-muted block mb-1">Nicho</label>
-              <input
-                type="text"
-                required
-                placeholder="Ex: Moda Urbana / Odonto"
-                value={newNiche}
-                onChange={(e) => setNewNiche(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main outline-none focus:border-accent-glow"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-text-muted block mb-1">URL da Imagem (Unsplash)</label>
-              <input
-                type="url"
-                required
-                placeholder="https://images.unsplash.com/..."
-                value={newImageUrl}
-                onChange={(e) => setNewImageUrl(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main outline-none focus:border-accent-glow"
-              />
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-text-muted block mb-1">Notas de Direção de Arte</label>
-              <textarea
-                rows={2}
-                placeholder="Observações sobre iluminação, enquadramento e textura..."
-                value={newNotes}
-                onChange={(e) => setNewNotes(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main outline-none focus:border-accent-glow resize-none"
-              />
+            <fieldset className="rounded-2xl border border-border-subtle bg-canvas/40 p-3 sm:p-4 min-w-0">
+              <legend className="px-1 text-sm font-semibold text-text-main">Imagem da referência</legend>
+              <div className="flex flex-wrap gap-x-5 gap-y-2 mb-3 text-sm text-text-main">
+                <label className="inline-flex items-center gap-2">
+                  <input type="radio" name="reference-image-mode" checked={imageMode === 'file'}
+                    onChange={() => { setImageMode('file'); setError(''); }} />
+                  Enviar arquivo
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="radio" name="reference-image-mode" checked={imageMode === 'link'}
+                    onChange={() => { setImageMode('link'); setImageFile(null); setError(''); }} />
+                  Usar link
+                </label>
+              </div>
+              {imageMode === 'file' ? (
+                <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                  {preview && (
+                    <div className="w-28 aspect-[4/3] rounded-lg overflow-hidden bg-surface border border-border-subtle shrink-0">
+                      <ReferenceImage source={preview} alt="Prévia do arquivo selecionado" className="w-full h-full object-contain" />
+                    </div>
+                  )}
+                  <div className="min-w-0 w-full">
+                    <label htmlFor="reference-file" className="rotulo flex items-center gap-1.5">
+                      <UploadCloud size={16} aria-hidden="true" /> Escolher imagem
+                    </label>
+                    <input id="reference-file" type="file" accept={referenceImageTypes.join(',')}
+                      aria-describedby="reference-file-help" onChange={selectImage}
+                      className="campo file:mr-3 file:cursor-pointer file:border-0 file:rounded-md file:bg-gelo file:px-2 file:py-1 file:font-semibold file:text-accent-primary" />
+                    {imageFile && <p className="mt-1 text-xs text-text-main break-all">{imageFile.file.name}</p>}
+                    <p id="reference-file-help" className="mt-1 text-xs text-text-muted">JPG, PNG, WebP, GIF ou AVIF de até 5 MB.</p>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label htmlFor="reference-link" className="rotulo">Link direto da imagem</label>
+                  <input id="reference-link" type="url" placeholder="https://exemplo.com/imagem.jpg"
+                    value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)}
+                    className="campo" />
+                </div>
+              )}
+            </fieldset>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="reference-notes" className="rotulo">Notas de direção de arte</label>
+                <textarea
+                  id="reference-notes"
+                  rows={2}
+                  placeholder="Observações sobre iluminação, enquadramento e textura..."
+                  value={newNotes}
+                  onChange={(e) => setNewNotes(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main outline-none focus:border-accent-glow resize-none"
+                />
+              </div>
+              <div>
+                <label htmlFor="reference-tags" className="rotulo">Tags (separadas por vírgula)</label>
+                <input
+                  id="reference-tags"
+                  type="text"
+                  placeholder="minimalismo, dark mode, neon"
+                  value={newTags}
+                  onChange={(e) => setNewTags(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main outline-none focus:border-accent-glow"
+                />
+              </div>
             </div>
-            <div>
-              <label className="text-xs text-text-muted block mb-1">Tags (separadas por vírgula)</label>
-              <input
-                type="text"
-                placeholder="minimalismo, dark mode, neon"
-                value={newTags}
-                onChange={(e) => setNewTags(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main outline-none focus:border-accent-glow"
-              />
-            </div>
-          </div>
+          </fieldset>
+
+          {error && <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
 
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="submit"
-              className="px-4 py-2 text-xs font-semibold rounded-xl bg-accent-primary hover:bg-accent-hover text-white flex items-center gap-1.5 cursor-pointer"
+              className="btn-primario"
+              disabled={saving}
             >
               <Plus className="w-3.5 h-3.5" />
-              Salvar Referência
+              {saving ? 'Salvando…' : 'Salvar referência'}
             </button>
           </div>
         </form>
@@ -190,8 +280,8 @@ export const ReferencesView: React.FC = () => {
             <div>
               {/* Image Preview with Aspect Ratio */}
               <div className="relative aspect-[16/10] w-full rounded-2xl overflow-hidden mb-4 bg-canvas border border-border-subtle">
-                <img
-                  src={ref.image_url}
+                <ReferenceImage
+                  source={ref.image_url ?? ''}
                   alt={ref.title}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                 />

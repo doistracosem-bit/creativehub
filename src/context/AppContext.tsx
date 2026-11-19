@@ -19,6 +19,7 @@ import {
   MOCK_CLIENTS 
 } from '../data/mockData';
 import { supabase, isMockMode } from '../lib/supabase';
+import { discardUnsavedReferenceImage, saveReferenceImage } from '../lib/referenceImages';
 
 interface AppContextType {
   projects: Project[];
@@ -35,7 +36,7 @@ interface AppContextType {
   updatePublicationStatus: (id: string, status: PublicationStatus) => Promise<void>;
   updatePublication: (id: string, data: Partial<Publication>) => Promise<void>;
   deletePublication: (id: string) => Promise<void>;
-  addReference: (input: CreateReferenceInput) => Promise<Reference>;
+  addReference: (input: Omit<CreateReferenceInput, 'image_url'>, image: File | string) => Promise<Reference>;
   addClient: (name: string, niche: string, extra?: Partial<Client>) => Client;
   updateClient: (id: string, patch: Partial<Client>) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
@@ -131,12 +132,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
     localStorage.setItem(STORAGE_KEYS.PUBLICATIONS, JSON.stringify(publications));
-    localStorage.setItem(STORAGE_KEYS.REFERENCES, JSON.stringify(references));
     if (isMockMode) {
       localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(clients));
       localStorage.setItem(STORAGE_KEYS.TEAM, JSON.stringify(team));
     }
-  }, [projects, publications, references, clients, team]);
+  }, [projects, publications, clients, team]);
 
   // Carrega dados do Supabase se configurado
   const refreshData = useCallback(async () => {
@@ -343,16 +343,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Ações: Referências
-  const addReference = async (input: CreateReferenceInput): Promise<Reference> => {
-    const newRef: Reference = {
-      ...input,
-      id: isMockMode ? `ref-${Date.now()}` : '',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
+  const addReference = async (fields: Omit<CreateReferenceInput, 'image_url'>, image: File | string): Promise<Reference> => {
+    const input = { ...fields, image_url: await saveReferenceImage(image, isMockMode) };
     if (isMockMode) {
-      setReferences((prev) => [newRef, ...prev]);
+      const now = new Date().toISOString();
+      const newRef: Reference = { ...input, id: crypto.randomUUID(), created_at: now, updated_at: now };
+      let stored = references;
+      try {
+        const cached = localStorage.getItem(STORAGE_KEYS.REFERENCES);
+        if (cached) stored = JSON.parse(cached) as Reference[];
+      } catch { /* O estado atual cobre um cache ausente ou inválido. */ }
+
+      const next = [newRef, ...stored];
+      try {
+        localStorage.setItem(STORAGE_KEYS.REFERENCES, JSON.stringify(next));
+      } catch {
+        throw new Error('O armazenamento da demonstração está cheio. Use um link ou uma imagem menor.');
+      }
+      setReferences(next);
       return newRef;
     }
 
@@ -362,7 +370,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      await discardUnsavedReferenceImage(input.image_url).catch(() => undefined);
+      throw new Error('Não foi possível salvar a referência. Tente novamente.');
+    }
     const created = data as Reference;
     setReferences((prev) => [created, ...prev]);
     return created;
