@@ -30,13 +30,16 @@ function StatGrid({ items }: { items: [string, string][] }) {
   );
 }
 
-export function CampaignPlan({ campaign, embedded = false }: { campaign: CampaignRow; embedded?: boolean }) {
+export function CampaignPlan({ campaign, embedded = false, onDelete }: { campaign: CampaignRow; embedded?: boolean; onDelete?: () => void }) {
   const { plan } = campaign;
   return (
     <article className={`min-w-0 p-4 sm:p-6 ${embedded ? 'border-t border-border-subtle' : 'cartao'}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="min-w-0 break-words text-lg font-extrabold">{plan.name}</h2>
-        <span className="rounded-full bg-gelo px-2.5 py-1 text-xs font-bold text-marinho">{plan.mode}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h2 className="min-w-0 break-words text-lg font-extrabold">{plan.name}</h2>
+          <span className="rounded-full bg-gelo px-2.5 py-1 text-xs font-bold text-marinho">{plan.mode}</span>
+        </div>
+        {onDelete && <DeleteCampaignButton onClick={onDelete} />}
       </div>
       <p className="mt-1 break-words text-sm text-text-muted">{plan.objective}</p>
       <p className="mt-2 mb-5 flex items-center gap-2 text-xs font-semibold text-text-muted"><Clock3 size={15} /> {FUNNELS[plan.funnel].label} · {formatDate(plan.start)} a {formatDate(plan.end)}</p>
@@ -56,8 +59,12 @@ export function CampaignPlan({ campaign, embedded = false }: { campaign: Campaig
   );
 }
 
-export function TrafficReport({ report, campaignName, demo, busy, adviceError, onAdvise, onRevise }: {
-  report: ReportRow; campaignName: string; demo: boolean; busy: boolean; adviceError: string; onAdvise: () => void; onRevise: () => void;
+function DeleteCampaignButton({ onClick }: { onClick: () => void }) {
+  return <button type="button" className="btn-fantasma min-h-11 !text-red-700 hover:!bg-red-50" onClick={onClick}>Excluir campanha</button>;
+}
+
+export function TrafficReport({ report, campaignName, demo, busy, adviceError, onAdvise, onRevise, onDelete }: {
+  report: ReportRow; campaignName: string; demo: boolean; busy: boolean; adviceError: string; onAdvise: () => void; onRevise: () => void; onDelete: () => void;
 }) {
   const { snapshot, diagnosis, advice } = report;
   const { total, rows } = diagnosis;
@@ -73,7 +80,10 @@ export function TrafficReport({ report, campaignName, demo, busy, adviceError, o
             <h2 className="mt-2 text-xl font-extrabold">Diagnóstico da campanha</h2>
             <p className="mt-1 break-words text-sm text-text-muted"><strong className="text-text-main">{campaignName}</strong> · {formatDate(snapshot.start)} a {formatDate(snapshot.end)} · {funnel.label}</p>
           </div>
-          <button className="btn-secundario min-h-11" onClick={onRevise}>Reavaliar com novos dados</button>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-secundario min-h-11" onClick={onRevise}>Reavaliar com novos dados</button>
+            <DeleteCampaignButton onClick={onDelete} />
+          </div>
         </div>
         {diagnosis.unchanged !== null && <p className="rounded-xl bg-gelo p-3 text-sm">{diagnosis.unchanged ? 'Reavaliação sem mudança na classificação.' : 'A classificação mudou nesta reavaliação.'}</p>}
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">

@@ -112,6 +112,7 @@ test('valida acesso e escopo antes de gravar e preserva diagnóstico sem Gemini'
   let writes = 0;
   let geminiCalls = 0;
   let geminiAvailable = false;
+  let deletes = 0;
   t.mock.method(globalThis, 'fetch', async (input, init) => {
     const url = new URL(input);
     if (url.pathname === '/auth/v1/user') return Response.json({ id: 'team-user' });
@@ -120,6 +121,15 @@ test('valida acesso e escopo antes de gravar e preserva diagnóstico sem Gemini'
       return Response.json(url.searchParams.get('id') === `eq.${client}` ? [{ id: client }] : []);
     }
     if (url.pathname.endsWith('/traffic_campaigns')) {
+      if (init.method === 'DELETE') {
+        assert.equal(init.headers.Authorization, 'Bearer private');
+        assert.equal(url.searchParams.get('client_id'), `eq.${client}`);
+        assert.equal(url.searchParams.get('id'), `eq.${campaign}`);
+        deletes++;
+        persistedPlan = null;
+        stored = null;
+        return new Response(null, { status: 204 });
+      }
       if (init.method === 'POST') {
         assert.equal(init.headers.Authorization, 'Bearer private');
         writes++;
@@ -193,4 +203,11 @@ test('valida acesso e escopo antes de gravar e preserva diagnóstico sem Gemini'
   assert.equal(stored.advice.recommendations[0].target, 2);
   assert.equal((await call({ ...base, action: 'advise' })).status, 200);
   assert.equal(geminiCalls, 2);
+  assert.equal((await call({ ...base, id: campaign, clientId: other, action: 'delete-campaign' })).status, 404);
+  assert.equal(deletes, 0);
+  const deleted = await call({ ...base, id: campaign, action: 'delete-campaign' });
+  assert.deepEqual(await deleted.json(), { deleted: true });
+  assert.equal(deletes, 1);
+  assert.equal((await call({ ...base, action: 'advise' })).status, 404);
+  assert.equal((await call({ ...base, id: campaign, action: 'delete-campaign' })).status, 200);
 });

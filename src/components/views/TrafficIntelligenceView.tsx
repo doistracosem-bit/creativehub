@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, ArrowRight, ClipboardList, History, Layers3, LineChart } from 'lucide-react';
+import { Activity, ArrowRight, ClipboardList, History, Layers3, LineChart, Trash2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { loadTraffic, saveTrafficPlan, saveTrafficReport, adviseTraffic } from '../../services/trafficService';
+import { loadTraffic, saveTrafficPlan, saveTrafficReport, adviseTraffic, deleteTrafficCampaign } from '../../services/trafficService';
 import { SOURCES } from '../../../supabase/functions/_shared/traffic';
 import type { CampaignRow, Plan, ReportRow, Snapshot } from '../../../supabase/functions/_shared/traffic';
 import { AnalysisForm, Field, Notice, PlanForm } from './traffic/TrafficForms';
 import { CampaignPlan, formatDate, TrafficReport } from './traffic/TrafficReport';
+import { Folha } from '../ui/Folha';
 
 const views = [
   { id: 'overview', label: 'Visão geral', icon: Layers3 },
@@ -55,6 +56,10 @@ function ClientTraffic({ clientId, demo }: { clientId: string; demo: boolean }) 
   const [revision, setRevision] = useState<ReportRow>();
   const [load, setLoad] = useState({ busy: true, error: '', version: 0 });
   const [advice, setAdvice] = useState({ id: '', busy: false, error: '' });
+  const [pendingDelete, setPendingDelete] = useState<CampaignRow>();
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [status, setStatus] = useState('');
   const section = useRef<HTMLDivElement>(null);
   const campaign = campaigns.find((row) => row.id === campaignId) ?? campaigns[0];
   const campaignReports = reports.filter((row) => row.campaign_id === campaign?.id);
@@ -109,6 +114,36 @@ function ClientTraffic({ clientId, demo }: { clientId: string; demo: boolean }) 
     }
   }
 
+  function confirmDelete(selected: CampaignRow) {
+    setDeleteError('');
+    setStatus('');
+    setPendingDelete(selected);
+  }
+
+  function closeDelete() {
+    if (!deleting) setPendingDelete(undefined);
+  }
+
+  async function deleteCampaign() {
+    if (!pendingDelete || deleting) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await deleteTrafficCampaign(pendingDelete, demo);
+      setCampaigns((rows) => rows.filter((row) => row.id !== pendingDelete.id));
+      setReports((rows) => rows.filter((row) => row.campaign_id !== pendingDelete.id));
+      setCampaignId('');
+      setReportId('');
+      setStatus('Campanha e histórico excluídos.');
+      setPendingDelete(undefined);
+      open('overview', true);
+    } catch (failure) {
+      setDeleteError(errorMessage(failure));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div ref={section} className="scroll-mt-4 space-y-4">
       <nav aria-label="Seções de Traffic Intelligence" className="grid grid-cols-3 gap-1 rounded-2xl border border-border-subtle bg-surface p-1 shadow-suave sm:w-fit sm:gap-2">
@@ -120,6 +155,7 @@ function ClientTraffic({ clientId, demo }: { clientId: string; demo: boolean }) 
           </button>
         ))}
       </nav>
+      {status && <p className="rounded-xl bg-gelo px-4 py-3 text-sm font-semibold text-marinho" role="status">{status}</p>}
 
       {load.busy ? <p className="cartao p-5 text-sm text-text-muted" role="status">Carregando campanhas e avaliações…</p> : load.error ? (
         <div className="space-y-3"><Notice>{load.error}</Notice><button className="btn-secundario min-h-11" onClick={() => setLoad({ busy: true, error: '', version: load.version + 1 })}>Recarregar</button></div>
@@ -154,7 +190,8 @@ function ClientTraffic({ clientId, demo }: { clientId: string; demo: boolean }) 
             <>
               {report ? <>
                 <TrafficReport report={report} campaignName={campaign.plan.name} demo={demo} busy={advice.busy} adviceError={advice.id === report.id ? advice.error : ''}
-                  onAdvise={() => void requestAdvice(report)} onRevise={() => { setRevision(report); setView('analyze'); section.current?.scrollIntoView({ block: 'start' }); }} />
+                  onAdvise={() => void requestAdvice(report)} onRevise={() => { setRevision(report); setView('analyze'); section.current?.scrollIntoView({ block: 'start' }); }}
+                  onDelete={() => confirmDelete(campaign)} />
                 <details className="cartao">
                   <summary className="min-h-12 content-center cursor-pointer px-4 font-bold text-marinho sm:px-6">Ver planejamento da campanha</summary>
                   <CampaignPlan campaign={campaign} embedded />
@@ -165,11 +202,22 @@ function ClientTraffic({ clientId, demo }: { clientId: string; demo: boolean }) 
                   <p className="mt-2 text-sm text-text-muted">Insira as métricas ou importe um CSV para salvar a primeira avaliação.</p>
                   <button className="btn-primario mt-4 min-h-11" onClick={() => open('analyze', true)}>Analisar campanha <ArrowRight size={16} /></button>
                 </section>}
-              {!report && <CampaignPlan campaign={campaign} />}
+              {!report && <CampaignPlan campaign={campaign} onDelete={() => confirmDelete(campaign)} />}
             </>
           )}
         </>
       )}
+      <Folha aberta={Boolean(pendingDelete)} aoFechar={closeDelete} titulo="Excluir campanha?" largura="md"
+        rodape={<div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className="btn-secundario min-h-11" onClick={closeDelete} disabled={deleting} autoFocus>Cancelar</button>
+          <button type="button" className="btn-primario min-h-11 !bg-red-700 hover:!bg-red-800" onClick={() => void deleteCampaign()} disabled={deleting}>
+            <Trash2 size={16} aria-hidden="true" /> {deleting ? 'Excluindo…' : 'Excluir definitivamente'}
+          </button>
+        </div>}
+      >
+        <p className="mb-3 break-words text-sm text-text-muted">O planejamento e todas as avaliações de <strong className="text-text-main">{pendingDelete?.plan.name}</strong> serão excluídos. Essa ação é permanente.</p>
+        {deleteError && <Notice>{deleteError}</Notice>}
+      </Folha>
     </div>
   );
 }

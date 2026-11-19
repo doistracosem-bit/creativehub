@@ -77,3 +77,16 @@ export async function adviseTraffic(report: ReportRow) {
     action: 'advise', id: report.id, clientId: report.client_id, campaignId: report.campaign_id,
   })).report;
 }
+
+export async function deleteTrafficCampaign(campaign: CampaignRow, demo: boolean) {
+  const { id, client_id: clientId } = campaign;
+  if (!demo) {
+    await invoke<{ deleted: true }>({ action: 'delete-campaign', id, clientId });
+    return;
+  }
+  const workspace = demoWorkspace(clientId);
+  window.localStorage.setItem(demoKey(clientId), JSON.stringify({
+    campaigns: workspace.campaigns.filter((row) => row.id !== id),
+    reports: workspace.reports.filter((row) => row.campaign_id !== id),
+  }));
+}

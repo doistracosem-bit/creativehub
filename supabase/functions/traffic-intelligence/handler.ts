@@ -82,6 +82,7 @@ function rest(root: string, headers: Record<string, string>) {
       if (response.status === 409) throw new RequestError(409, 'O vínculo mudou. Atualize os dados e tente novamente.');
       throw new RequestError(503, 'Não foi possível acessar os dados de tráfego.');
     }
+    if (response.status === 204) return [];
     return await response.json();
   };
 }
@@ -215,6 +216,11 @@ export async function handleTraffic(request: Request) {
       const campaign = created ?? (await read<CampaignRow>('traffic_campaigns', scope(client, id)))[0];
       if (!campaign) throw new RequestError(409, 'Identificador de planejamento indisponível.');
       return reply(200, { campaign });
+    }
+
+    if (data.action === 'delete-campaign') {
+      await write('traffic_campaigns', scope(client, id), { method: 'DELETE' });
+      return reply(200, { deleted: true });
     }
 
     if (data.action === 'analyze' || data.action === 'advise') {
