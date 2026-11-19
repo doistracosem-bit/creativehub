@@ -42,9 +42,8 @@ test('authenticates the team, sends only the current context and returns Gemini 
   t.mock.method(globalThis, 'fetch', async (input, options) => {
     const url = new URL(input);
     if (url.pathname === '/auth/v1/user') return Response.json({ email: 'Equipe@example.test' });
-    if (url.pathname === '/rest/v1/team_members') {
-      assert.equal(url.searchParams.get('email'), 'eq."equipe@example.test"');
-      return Response.json(options.headers.Authorization === 'Bearer member' ? [{ email: 'equipe@example.test' }] : []);
+    if (url.pathname === '/rest/v1/rpc/is_member') {
+      return Response.json(options.headers.Authorization === 'Bearer member');
     }
     assert.equal(url.hostname, 'generativelanguage.googleapis.com');
     assert.ok(['/v1beta/models/gemini-test-model:generateContent', '/v1beta/models/gemini-flash-latest:generateContent'].includes(url.pathname));
