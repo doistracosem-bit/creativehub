@@ -1,820 +1,277 @@
-import React, { useState, useRef } from 'react';
-import { 
-  Sparkles, 
-  Wand2, 
-  CalendarPlus, 
-  Download, 
-  Copy, 
-  Check, 
-  UploadCloud, 
-  X, 
-  Layers, 
-  Type, 
-  Palette, 
-  Lightbulb, 
-  FileJson, 
-  Clock, 
-  CheckCircle2,
-  RefreshCw,
-  Contact,
-} from 'lucide-react';
-import { useUI } from '../../context/UIContext';
+import { useLayoutEffect, useRef, useState } from 'react';
+import type { ChangeEvent, FormEvent } from 'react';
+import { ArrowRight, ImagePlus, Sparkles, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { generateDesignBriefing, exportPhotoshopJson } from '../../services/aiService';
-import type { BriefingFormat, BriefingGoal, DesignBriefing } from '../../types';
-import { Toast } from '../ui/Toast';
-import { cn } from '../../lib/utils';
+import { useUI } from '../../context/UIContext';
+import { exampleContent } from '../../data/briefingExample';
+import { createBriefing, generateDesignBriefing, readReferenceImage } from '../../services/aiService';
+import { FORMATS, GOALS, IMAGE_LIMIT, IMAGE_TYPES, normalizeNiche, parseRequest } from '../../../supabase/functions/_shared/briefing';
+import type { BriefingFormat, BriefingGoal } from '../../../supabase/functions/_shared/briefing';
+import type { DesignBriefing } from '../../types';
+import { BriefingResult, PreviewPlaceholder } from './BriefingResult';
+import './copilot.css';
 
-const NICHE_OPTIONS = [
-  'Odontologia',
-  'Moda Urbana',
-  'SaaS / Tech',
-  'Gastronomia',
-  'Fitness',
-];
+const niches = ['Odontologia', 'Moda Urbana', 'SaaS / Tech', 'Gastronomia', 'Fitness'];
 
-const FORMAT_OPTIONS: { id: BriefingFormat; label: string; ratio: string; iconRatio: string }[] = [
-  { id: 'CARROSSEL_4x5', label: 'Carrossel Feed', ratio: '4:5 (1080x1350)', iconRatio: 'aspect-[4/5]' },
-  { id: 'STORY_9x16', label: 'Stories / Reels', ratio: '9:16 (1080x1920)', iconRatio: 'aspect-[9/16]' },
-  { id: 'POST_1x1', label: 'Feed Quadrado', ratio: '1:1 (1080x1080)', iconRatio: 'aspect-square' },
-];
-
-const GOAL_OPTIONS: BriefingGoal[] = [
-  'Autoridade',
-  'Vendas',
-  'Educativo',
-  'Engajamento',
-  'Lançamento',
-  'Rebranding',
-];
-
-export const AICopilotView: React.FC = () => {
-  const { clients, projects, publications, references } = useApp();
+export function AICopilotView() {
+  const { clients, projects, publications, references, isMockMode } = useApp();
   const { abrirPost } = useUI();
-  const [clienteId, setClienteId] = useState<string>('');
-  const [projetoId, setProjetoId] = useState<string>('');
-  const [erroIA, setErroIA] = useState<string>('');
-  const cliente = clients.find((c) => c.id === clienteId) || null;
-  const projetosDoCliente = cliente ? projects.filter((p) => p.client_name === cliente.name) : [];
+  const [clientId, setClientId] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [manualNiche, setManualNiche] = useState('');
+  const [format, setFormat] = useState<BriefingFormat>('CARROSSEL_4x5');
+  const [goal, setGoal] = useState<BriefingGoal>('Autoridade');
+  const [audience, setAudience] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [referenceId, setReferenceId] = useState('');
+  const [image, setImage] = useState<File | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ briefing: DesignBriefing; contextKey: string } | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const resultPanel = useRef<HTMLElement>(null);
 
-  // Ao escolher o cliente, usa o nicho dele
-  const escolherCliente = (id: string) => {
-    setClienteId(id); setProjetoId('');
-    const c = clients.find((x) => x.id === id);
-    if (c?.niche && c.niche !== 'Geral') {
-      const conhecido = NICHE_OPTIONS.find((n) => n.toLowerCase() === c.niche.toLowerCase());
-      if (conhecido) { setSelectedNiche(conhecido); setIsCustomNicheActive(false); setCustomNicheInput(''); }
-      else { setIsCustomNicheActive(true); setCustomNicheInput(c.niche); setSelectedNiche(c.niche); }
+  const client = clients.find((item) => item.id === clientId);
+  const registeredNiche = normalizeNiche(client?.niche ?? '') === 'geral' ? '' : client?.niche.trim();
+  const niche = registeredNiche || manualNiche.trim();
+  const clientName = client?.name.trim() || '';
+  const uniqueClient = client && clients.filter((item) => item.name === client.name).length === 1;
+  const clientProjects = uniqueClient ? projects.filter((item) => item.client_name === client.name) : [];
+  const project = clientProjects.find((item) => item.id === projectId);
+  const availableReferences = niche ? references.filter((item) => normalizeNiche(item.niche) === normalizeNiche(niche)) : [];
+  const reference = availableReferences.find((item) => item.id === referenceId);
+  const contextKey = JSON.stringify([clientId, clientName, niche, client?.notes, project?.id, project?.project_name, reference?.id, reference?.title, reference?.notes]);
+  const liveContext = useRef(contextKey);
+  useLayoutEffect(() => {
+    liveContext.current = contextKey;
+  }, [contextKey]);
+  useLayoutEffect(() => () => request.current?.abort(), []);
+
+  const currentResult = result?.contextKey === contextKey ? result.briefing : null;
+  useLayoutEffect(() => {
+    if (currentResult && window.matchMedia('(max-width: 67.99rem)').matches) {
+      resultPanel.current?.scrollIntoView({ block: 'start' });
     }
-  };
+  }, [currentResult]);
 
-  // Estados de Entrada
-  const [selectedNiche, setSelectedNiche] = useState<string>('Odontologia');
-  const [isCustomNicheActive, setIsCustomNicheActive] = useState<boolean>(false);
-  const [customNicheInput, setCustomNicheInput] = useState<string>('');
-  const [selectedFormat, setSelectedFormat] = useState<BriefingFormat>('CARROSSEL_4x5');
-  const [selectedGoal, setSelectedGoal] = useState<BriefingGoal>('Autoridade');
-  const [userPrompt, setUserPrompt] = useState<string>('');
-  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  function invalidate() {
+    request.current?.abort();
+    request.current = null;
+    setBusy(false);
+    setResult(null);
+    setError('');
+  }
 
-  // Estados de Saída & Interação
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [currentBriefing, setCurrentBriefing] = useState<DesignBriefing | null>(null);
-  const [activeSlideIndex, setActiveSlideIndex] = useState<number>(0);
-  const [copiedCaption, setCopiedCaption] = useState<boolean>(false);
-  const [copiedHex, setCopiedHex] = useState<string | null>(null);
+  function clearImage() {
+    setImage(null);
+    if (fileInput.current) fileInput.current.value = '';
+  }
 
-  // Estado do Toast de Notificação
-  const [toastState, setToastState] = useState<{
-    isOpen: boolean;
-    message: string;
-    type: 'success' | 'copilot' | 'info';
-  }>({
-    isOpen: false,
-    message: '',
-    type: 'copilot',
-  });
+  function changeScope() {
+    invalidate();
+    setPrompt('');
+    setAudience('');
+    setReferenceId('');
+    clearImage();
+  }
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  function changeNiche(value: string) {
+    if (normalizeNiche(value) !== normalizeNiche(manualNiche)) changeScope();
+    else invalidate();
+    setManualNiche(value);
+  }
 
-  const showToast = (message: string, type: 'success' | 'copilot' | 'info' = 'copilot') => {
-    setToastState({ isOpen: true, message, type });
-  };
+  function handleImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    invalidate();
+    if (!IMAGE_TYPES.some((type) => type === file.type) || file.size > IMAGE_LIMIT || !file.size) {
+      clearImage();
+      setError('Escolha um arquivo PNG, JPG ou WebP de até 3 MB.');
+      return;
+    }
+    setImage(file);
+  }
 
-  // Manipulador de Geração com IA
-  const gerar = async (variacao = false) => {
-    setIsGenerating(true);
-    setErroIA('');
-    const projeto = projects.find((p) => p.id === projetoId);
-    const nomeCliente = cliente?.name;
+  async function generate(previousHook?: string) {
+    if (isMockMode || request.current) return;
+    if (niche.length < 2 || prompt.trim().length < 12) {
+      setError('Preencha o nicho e descreva a campanha com pelo menos 12 caracteres.');
+      return;
+    }
+
+    const controller = new AbortController();
+    request.current = controller;
+    setBusy(true);
+    if (!previousHook) setResult(null);
+    setError('');
+    const stillCurrent = () => request.current === controller && !controller.signal.aborted && liveContext.current === contextKey;
+
     try {
-      const generated = await generateDesignBriefing({
-        niche: selectedNiche,
-        format: selectedFormat,
-        goal: selectedGoal,
-        referenceImageUrl: referenceImage || undefined,
-        userPrompt,
-        variacao,
-        cliente: cliente ? { name: cliente.name, niche: cliente.niche, instagram: cliente.instagram, notes: cliente.notes } : null,
-        projeto: projeto ? `${projeto.project_name} (etapa ${projeto.stage}, ${projeto.progress}% concluído)` : null,
-        postsRecentes: nomeCliente
-          ? publications.filter((p) => p.client_name === nomeCliente)
-              .sort((a, b) => +new Date(b.scheduled_for) - +new Date(a.scheduled_for))
-              .slice(0, 8).map((p) => p.headline)
-          : [],
-        referencias: references
-          .filter((r) => !selectedNiche || (r.niche || '').toLowerCase().includes(selectedNiche.toLowerCase().split(' ')[0]))
-          .slice(0, 4).map((r) => `${r.title}: ${r.notes}`),
+      const attachment = image ? await readReferenceImage(image) : undefined;
+      if (!stillCurrent()) return;
+      const context = parseRequest({
+        requestId: crypto.randomUUID(), client: clientName, niche, format, goal, audience, prompt,
+        project: project?.project_name.trim().slice(0, 160) || undefined,
+        brandNotes: client?.notes?.trim().slice(0, 1200) || undefined,
+        recentPosts: uniqueClient ? publications.filter((item) => item.client_name === client.name && item.headline.trim())
+          .sort((a, b) => Date.parse(b.scheduled_for) - Date.parse(a.scheduled_for))
+          .slice(0, 6).map((item) => item.headline.trim().slice(0, 150)) : undefined,
+        previousHook,
+        reference: reference ? { title: reference.title.slice(0, 160), notes: reference.notes.slice(0, 1000) } : undefined,
+        image: attachment,
       });
-      setCurrentBriefing(generated);
-      setActiveSlideIndex(0);
-      showToast(variacao ? 'Nova versão gerada!' : 'Briefing gerado!', 'copilot');
-    } catch (err) {
-      console.error(err);
-      setErroIA(err instanceof Error ? err.message : 'Não foi possível gerar o briefing.');
+      const briefing = await generateDesignBriefing(context, project?.id ?? null, controller.signal);
+      if (stillCurrent()) setResult({ briefing, contextKey });
+    } catch (cause) {
+      if (stillCurrent()) setError(cause instanceof Error ? cause.message : 'A geração falhou. Tente novamente.');
     } finally {
-      setIsGenerating(false);
+      if (request.current === controller) {
+        request.current = null;
+        setBusy(false);
+      }
     }
-  };
+  }
 
-  const handleGenerate = (e: React.FormEvent) => { e.preventDefault(); gerar(false); };
+  function showExample() {
+    invalidate();
+    const briefing = createBriefing({
+      requestId: crypto.randomUUID(), niche: 'Livraria de bairro', format: 'CARROSSEL_4x5', goal: 'Educativo', client: '', projectId: null,
+    }, exampleContent, null);
+    setResult({ briefing, contextKey });
+  }
 
-  // Upload de Imagem de Referência
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setReferenceImage(reader.result as string);
-        showToast('Print de referência carregado no laboratório.', 'info');
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Ação 1: Levar para o calendário (abre o post já preenchido para revisar e salvar)
-  const handleScheduleToCalendar = () => {
-    if (!currentBriefing) return;
-    const quando = new Date(Date.now() + 86400000);
-    quando.setHours(18, 0, 0, 0);
-    abrirPost(null, {
-      client_name: currentBriefing.client_name || cliente?.name || undefined,
-      project_id: projetoId || null,
-      format: selectedFormat === 'CARROSSEL_4x5' ? 'Carrossel Instagram' : selectedFormat === 'STORY_9x16' ? 'Stories Interativos' : 'Post Estático',
-      headline: currentBriefing.magnetic_hook,
-      copy_text: `${currentBriefing.caption}\n\n${currentBriefing.hashtags.join(' ')}`,
-      status: 'CRIANDO',
-      scheduled_for: quando.toISOString(),
-    });
-  };
-
-  // Ação 2: Exportar para Photoshop / Illustrator
-  const handleExportPhotoshop = () => {
-    if (!currentBriefing) return;
-    exportPhotoshopJson(currentBriefing);
-    showToast(
-      'Arquivo "briefing_autopilot.json" baixado para automação em Photoshop/Illustrator!',
-      'success'
-    );
-  };
-
-  // Copiar Legenda
-  const handleCopyCaption = () => {
-    if (!currentBriefing) return;
-    const fullText = `${currentBriefing.caption}\n\n${currentBriefing.hashtags.join(' ')}`;
-    navigator.clipboard.writeText(fullText);
-    setCopiedCaption(true);
-    showToast('Legenda e hashtags copiadas para a área de transferência!', 'copilot');
-    setTimeout(() => setCopiedCaption(false), 2500);
-  };
-
-  // Copiar Cor Hexadecimal
-  const handleCopyColor = (hex: string) => {
-    navigator.clipboard.writeText(hex);
-    setCopiedHex(hex);
-    showToast(`Cor ${hex} copiada com sucesso!`, 'info');
-    setTimeout(() => setCopiedHex(null), 2000);
-  };
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    void generate();
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="p-6 rounded-bento bg-gradient-to-r from-gelo via-surface to-surface border border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-suave relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-accent-glow/10 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="z-10">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent-primary/30 border border-accent-glow/40 text-accent-glow text-xs font-bold mb-2">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Copilot IA &bull; Gemini</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-text-main tracking-tight">
-            Copilot de briefings
-          </h2>
-          <p className="text-xs sm:text-sm text-text-muted mt-1 max-w-2xl leading-relaxed">
-            Escolha o cliente e diga o que precisa. A IA usa a ficha do cliente, o projeto e os últimos posts para montar gancho, slides, direção de arte, paleta e legenda.
-          </p>
+    <div className="copilot-workspace">
+      <header className="copilot-heading">
+        <div className="copilot-heading-icon"><Sparkles aria-hidden="true" size={24} /></div>
+        <div>
+          <h2>Estúdio de briefing</h2>
+          <p>Planeje a campanha, escreva o roteiro e visualize cada peça.</p>
         </div>
+      </header>
 
-        {/* Quick format spec pill */}
-        <div className="z-10 self-start sm:self-auto flex items-center gap-2 p-3 rounded-2xl bg-canvas/70 border border-border-subtle text-xs font-mono">
-          <FileJson className="w-4 h-4 text-accent-glow" />
-          <div>
-            <span className="text-text-muted text-[10px] block">Autopilot Bridge</span>
-            <span className="text-text-main font-semibold">ExtendScript JSON Ready</span>
-          </div>
+      {isMockMode && (
+        <div className="copilot-demo">
+          <p>Conecte o Supabase para gerar briefings com o Gemini.</p>
+          <button className="btn-secundario" type="button" onClick={showExample}>Ver exemplo <ArrowRight size={16} aria-hidden="true" /></button>
         </div>
-      </div>
+      )}
 
-      {/* Split View: Coluna da Esquerda (Entrada) vs Coluna da Direita (Saída Gerada) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* =====================================================================
-            COLUNA DA ESQUERDA: PARÂMETROS DE ENTRADA (5 Colunas no Desktop)
-           ===================================================================== */}
-        <form
-          onSubmit={handleGenerate}
-          className="lg:col-span-5 p-6 rounded-bento bg-surface border border-border-subtle space-y-5 shadow-suave"
-        >
-          <div className="flex items-center justify-between pb-3 border-b border-border-subtle">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-accent-primary/20 text-accent-glow flex items-center justify-center">
-                <Wand2 className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold text-text-main">Diretrizes do Briefing</h3>
-            </div>
-            <span className="text-[10px] font-mono text-text-muted uppercase">Input Studio</span>
-          </div>
+      <div className="copilot-grid">
+        <form className="cartao copilot-form" onSubmit={submit} aria-describedby={error ? 'copilot-error' : undefined}>
+          <h3>Briefing da campanha</h3>
 
-          {/* 0. Cliente e projeto: dão contexto real para a IA */}
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-text-main mb-1.5 flex items-center gap-1.5"><Contact className="w-3.5 h-3.5 text-accent-glow" />Cliente</label>
-              <select className="campo !py-2 !text-sm" value={clienteId} onChange={(e) => escolherCliente(e.target.value)}>
-                <option value="">Sem cliente (só nicho)</option>
-                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {clients.length > 0 && (
+            <div className="copilot-field">
+              <label htmlFor="copilot-client">Cliente <small>opcional</small></label>
+              <select id="copilot-client" className="campo" value={clientId} onChange={(event) => {
+                changeScope();
+                setManualNiche('');
+                setProjectId('');
+                setClientId(event.target.value);
+              }}>
+                <option value="">Sem cliente vinculado</option>
+                {clients.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-text-main block mb-1.5">Projeto</label>
-              <select className="campo !py-2 !text-sm" value={projetoId} onChange={(e) => setProjetoId(e.target.value)} disabled={!cliente}>
-                <option value="">{cliente ? 'Nenhum' : 'Escolha um cliente'}</option>
-                {projetosDoCliente.map((p) => <option key={p.id} value={p.id}>{p.project_name}</option>)}
-              </select>
-            </div>
-          </div>
-          {cliente && (
-            <p className="text-[11px] text-text-muted -mt-2">
-              A IA vai usar o nicho, as anotações e o Instagram de <b className="text-text-main">{cliente.name}</b> e evitar repetir os últimos posts dele.
-              {!cliente.notes && ' Dica: preencha as anotações do cliente (tom de voz, público, cores) para briefings ainda mais certeiros.'}
-            </p>
           )}
 
-          {/* 1. Nicho com Chips Visuais & Opção + Outro Nicho */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-semibold text-text-main">
-                1. Nicho
-              </label>
-              {isCustomNicheActive && (
-                <span className="text-[10px] font-mono text-accent-glow">
-                  Nicho Personalizado
-                </span>
+          {clientProjects.length > 0 && (
+            <div className="copilot-field">
+              <label htmlFor="copilot-project">Projeto <small>opcional</small></label>
+              <select id="copilot-project" className="campo" value={project?.id || ''} onChange={(event) => {
+                changeScope();
+                setProjectId(event.target.value);
+              }}>
+                <option value="">Sem projeto vinculado</option>
+                {clientProjects.map((item) => <option key={item.id} value={item.id}>{item.project_name}</option>)}
+              </select>
+            </div>
+          )}
+
+          <label className="copilot-field">
+            <span>Nicho</span>
+            <input className="campo" list="copilot-niches" required maxLength={120}
+              readOnly={Boolean(registeredNiche)} value={registeredNiche || manualNiche}
+              onChange={(event) => changeNiche(event.target.value)} placeholder="Escolha ou digite um nicho" />
+            <datalist id="copilot-niches">
+              {niches.map((item) => <option key={item} value={item} />)}
+            </datalist>
+          </label>
+
+          <div className="copilot-field-row">
+            <div className="copilot-field">
+              <label htmlFor="copilot-format">Formato</label>
+              <select id="copilot-format" className="campo" value={format} onChange={(event) => { invalidate(); setFormat(event.target.value as BriefingFormat); }}>
+                {Object.entries(FORMATS).map(([id, item]) => <option key={id} value={id}>{item.label}</option>)}
+              </select>
+            </div>
+            <div className="copilot-field">
+              <label htmlFor="copilot-goal">Objetivo</label>
+              <select id="copilot-goal" className="campo" value={goal} onChange={(event) => { invalidate(); setGoal(event.target.value as BriefingGoal); }}>
+                {GOALS.map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <label className="copilot-field">
+            <span>Público <small>opcional</small></span>
+            <input className="campo" value={audience} maxLength={400}
+              onChange={(event) => { invalidate(); setAudience(event.target.value); }}
+              placeholder="Ex. moradores que já compram no bairro" />
+          </label>
+
+          <label className="copilot-field">
+            <span>O que a campanha precisa comunicar?</span>
+            <textarea className="campo copilot-textarea" value={prompt} required minLength={12} maxLength={4000} rows={4}
+              onChange={(event) => { invalidate(); setPrompt(event.target.value); }}
+              placeholder="Inclua o tema, a oferta ou mensagem, o tom e os detalhes que precisam aparecer." />
+          </label>
+
+          <details className="copilot-references">
+            <summary><ImagePlus size={18} aria-hidden="true" /> Referência criativa <small>opcional</small></summary>
+            <div className="copilot-reference-fields">
+              {availableReferences.length > 0 && (
+                <div className="copilot-field">
+                  <label htmlFor="copilot-reference">Notas da biblioteca</label>
+                  <select id="copilot-reference" className="campo" value={reference?.id || ''}
+                    onChange={(event) => { invalidate(); setReferenceId(event.target.value); }}>
+                    <option value="">Nenhuma referência</option>
+                    {availableReferences.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+                  </select>
+                </div>
               )}
+              <label className="copilot-field">
+                <span>Imagem de referência</span>
+                <input className="campo copilot-upload" ref={fileInput} type="file" onChange={handleImage} accept={IMAGE_TYPES.join(',')} />
+                <small>PNG, JPG ou WebP até 3 MB.</small>
+              </label>
+              {image && <button className="btn-fantasma copilot-remove" type="button" onClick={() => { invalidate(); clearImage(); }}>
+                <X size={16} aria-hidden="true" /> Remover imagem
+              </button>}
             </div>
+          </details>
 
-            <div className="flex flex-wrap gap-2">
-              {NICHE_OPTIONS.map((niche) => {
-                const isSelected = !isCustomNicheActive && selectedNiche === niche;
-                return (
-                  <button
-                    key={niche}
-                    type="button"
-                    onClick={() => {
-                      setSelectedNiche(niche);
-                      setIsCustomNicheActive(false);
-                      setCustomNicheInput('');
-                    }}
-                    className={cn(
-                      "px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer border",
-                      isSelected
-                        ? "bg-accent-primary text-white border-accent-glow shadow-sm shadow-accent-primary/30 font-semibold"
-                        : "bg-canvas/80 text-text-muted hover:text-text-main border-border-subtle hover:bg-surface-hover"
-                    )}
-                  >
-                    {niche}
-                  </button>
-                );
-              })}
-
-              {/* Botão + Outro Nicho */}
-              <button
-                type="button"
-                onClick={() => {
-                  setIsCustomNicheActive(true);
-                  if (customNicheInput) {
-                    setSelectedNiche(customNicheInput);
-                  }
-                }}
-                className={cn(
-                  "px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer border",
-                  isCustomNicheActive
-                    ? "bg-accent-primary text-white border-accent-glow shadow-sm shadow-accent-primary/30 font-semibold"
-                    : "bg-canvas/80 text-accent-glow border-accent-glow/40 hover:bg-surface-hover hover:border-accent-glow"
-                )}
-              >
-                + Outro Nicho
-              </button>
-            </div>
-
-            {/* Input Inline para Nicho Customizado */}
-            {isCustomNicheActive && (
-              <div className="mt-2.5 p-2.5 rounded-2xl bg-canvas border border-accent-glow/40 space-y-1.5 animate-in fade-in">
-                <span className="text-[10px] font-mono text-text-muted block">
-                  Digite o nicho livremente (ex: Advocacia, Imobiliária, Arquitetura, Pet Shop):
-                </span>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    required
-                    placeholder="Nome do nicho..."
-                    value={customNicheInput}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCustomNicheInput(val);
-                      setSelectedNiche(val || 'Geral');
-                    }}
-                    className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-surface border border-border-subtle text-text-main focus:border-accent-glow outline-none font-medium"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsCustomNicheActive(false);
-                      setCustomNicheInput('');
-                      setSelectedNiche('Odontologia');
-                    }}
-                    className="text-xs text-text-muted hover:text-text-main px-2 py-1 cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 2. Formato com Aspect Ratio */}
-          <div>
-            <label className="text-xs font-semibold text-text-main block mb-2">
-              2. Formato de Exportação
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {FORMAT_OPTIONS.map((fmt) => {
-                const isSelected = selectedFormat === fmt.id;
-                return (
-                  <button
-                    key={fmt.id}
-                    type="button"
-                    onClick={() => setSelectedFormat(fmt.id)}
-                    className={cn(
-                      "p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-1.5",
-                      isSelected
-                        ? "bg-accent-primary/15 border-accent-glow text-accent-glow shadow-sm shadow-accent-primary/20"
-                        : "bg-canvas/80 border-border-subtle text-text-muted hover:text-text-main hover:bg-surface-hover"
-                    )}
-                  >
-                    <span className="text-[11px] font-bold block">{fmt.label}</span>
-                    <span className="text-[9px] font-mono opacity-80 block">{fmt.ratio}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 3. Objetivo */}
-          <div>
-            <label className="text-xs font-semibold text-text-main block mb-2">
-              3. Objetivo da Campanha
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {GOAL_OPTIONS.map((goal) => {
-                const isSelected = selectedGoal === goal;
-                return (
-                  <button
-                    key={goal}
-                    type="button"
-                    onClick={() => setSelectedGoal(goal)}
-                    className={cn(
-                      "px-3 py-2 rounded-xl text-xs font-medium border text-left transition-all cursor-pointer",
-                      isSelected
-                        ? "bg-accent-primary/20 border-accent-glow text-accent-glow font-bold"
-                        : "bg-canvas/80 border-border-subtle text-text-muted hover:text-text-main"
-                    )}
-                  >
-                    &bull; {goal}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 4. Campo de Anotações / User Prompt */}
-          <div>
-            <label className="text-xs font-semibold text-text-main block mb-1.5">
-              4. Anotações &amp; Direcionamento Criativo
-            </label>
-            <textarea
-              rows={3}
-              value={userPrompt}
-              onChange={(e) => setUserPrompt(e.target.value)}
-              placeholder="Ex: Focar em estética silenciosa, quebra de objeções e chamada direta para agendamento..."
-              className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-canvas border border-border-subtle text-text-main focus:border-accent-glow outline-none resize-none leading-relaxed placeholder:text-text-muted/60"
-            />
-          </div>
-
-          {/* 5. Drag & Drop / Upload de Print de Referência */}
-          <div>
-            <label className="text-xs font-semibold text-text-main block mb-1.5">
-              5. Print / Imagem de Referência (Opcional)
-            </label>
-            
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImageUpload}
-              accept="image/*"
-              className="hidden"
-            />
-
-            {referenceImage ? (
-              <div className="relative rounded-2xl overflow-hidden border border-border-subtle bg-canvas p-2 flex items-center gap-3">
-                <img
-                  src={referenceImage}
-                  alt="Referência Visual"
-                  className="w-16 h-16 rounded-xl object-cover border border-border-subtle"
-                />
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs font-semibold text-text-main block truncate">
-                    Referência Visual Ativa
-                  </span>
-                  <span className="text-[10px] text-accent-glow font-mono block">
-                    Alimentando semiótica do briefing
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setReferenceImage(null)}
-                  className="w-7 h-7 rounded-lg bg-surface text-text-muted hover:text-rose-700 flex items-center justify-center cursor-pointer transition-colors"
-                  title="Remover referência"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="p-4 rounded-2xl border border-dashed border-border-subtle hover:border-accent-primary/60 bg-canvas/60 text-center cursor-pointer transition-all hover:bg-surface-hover/60 group"
-              >
-                <UploadCloud className="w-6 h-6 text-accent-glow mx-auto mb-1 group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-semibold text-text-main block">
-                  Arraste ou clique para subir print
-                </span>
-                <span className="text-[10px] text-text-muted block mt-0.5">
-                  PNG, JPG ou WebP até 10MB
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Botão de Disparo Principal */}
-          <button
-            type="submit"
-            disabled={isGenerating}
-            className="w-full py-3.5 px-4 rounded-2xl bg-accent-primary hover:bg-accent-hover text-white text-xs font-bold flex items-center justify-center gap-2 shadow-suave shadow-accent-primary/30 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
-          >
-            {isGenerating ? (
-              <>
-                <Wand2 className="w-4 h-4 animate-spin" />
-                <span>Gerando briefing…</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>Gerar briefing com IA</span>
-              </>
-            )}
+          {error && <p className="copilot-error" id="copilot-error" role="alert">{error}</p>}
+          <button className="btn-primario copilot-submit" type="submit" disabled={busy || isMockMode}>
+            <Sparkles size={18} aria-hidden="true" /> {busy ? 'Gerando briefing…' : 'Gerar briefing'}
           </button>
-          {erroIA && (
-            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-2xl px-4 py-3">{erroIA}</p>
-          )}
         </form>
 
-        {/* =====================================================================
-            COLUNA DA DIREITA: SAÍDA GERADA & EXPORTAÇÕES (7 Colunas no Desktop)
-           ===================================================================== */}
-        <div className="lg:col-span-7 space-y-6">
-          {currentBriefing ? (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              
-              {/* Card 1: Título de Campanha e Gancho Magnético */}
-              <div className="p-6 rounded-bento bg-surface border border-border-subtle shadow-suave space-y-3 relative overflow-hidden">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full bg-accent-primary/20 text-accent-glow border border-accent-glow/30">
-                    {currentBriefing.format} &bull; {currentBriefing.goal}
-                  </span>
-                  <span className="text-text-muted text-[10px] font-mono flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-accent-glow" />
-                    Gerado em tempo real
-                  </span>
-                </div>
-
-                <div>
-                  <h3 className="text-xs font-mono uppercase text-text-muted tracking-wider">
-                    {currentBriefing.campaign_title}
-                  </h3>
-                  <h4 className="text-lg md:text-xl font-extrabold text-text-main mt-1 leading-snug">
-                    {currentBriefing.magnetic_hook}
-                  </h4>
-                  {currentBriefing.strategy && (
-                    <p className="text-sm text-text-muted mt-2 leading-relaxed">{currentBriefing.strategy}</p>
-                  )}
-                  {!!currentBriefing.alternative_hooks?.length && (
-                    <div className="mt-3">
-                      <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wide">Outros ganchos (toque para usar)</span>
-                      <div className="flex flex-col gap-1.5 mt-1.5">
-                        {currentBriefing.alternative_hooks.map((h) => (
-                          <button key={h} type="button"
-                            onClick={() => setCurrentBriefing((b) => b && ({
-                              ...b,
-                              magnetic_hook: h,
-                              alternative_hooks: [b.magnetic_hook, ...(b.alternative_hooks || []).filter((x) => x !== h)],
-                              slides: b.slides.map((s, i) => (i === 0 ? { ...s, headline: h } : s)),
-                            }))}
-                            className="text-left text-sm px-3 py-2 rounded-xl bg-canvas hover:bg-gelo border border-border-subtle text-text-main transition-colors cursor-pointer">
-                            {h}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Barra de Ações de Saída: Agendar + Exportar JSON */}
-                <div className="pt-3 border-t border-border-subtle flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleScheduleToCalendar}
-                      className="px-3.5 py-2 rounded-xl bg-accent-primary hover:bg-accent-hover text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm shadow-accent-primary/25 cursor-pointer transition-all active:scale-95"
-                    >
-                      <CalendarPlus className="w-3.5 h-3.5" />
-                      <span>Levar para o calendário</span>
-                    </button>
-
-                    <button
-                      onClick={() => gerar(true)}
-                      disabled={isGenerating}
-                      className="px-3.5 py-2 rounded-xl bg-surface hover:bg-surface-hover text-text-main border border-border-subtle text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-                    >
-                      <RefreshCw className={cn('w-3.5 h-3.5', isGenerating && 'animate-spin')} />
-                      <span>Outra versão</span>
-                    </button>
-
-                    <button
-                      onClick={handleExportPhotoshop}
-                      className="px-3.5 py-2 rounded-xl bg-canvas hover:bg-surface-hover text-accent-glow border border-accent-glow/40 text-xs font-semibold flex items-center gap-1.5 shadow-sm cursor-pointer transition-all active:scale-95"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Exportar para Photoshop/Illustrator (.json)</span>
-                    </button>
-                  </div>
-
-                  <span className="text-[10px] text-text-muted font-mono flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-700" />
-                    Camadas Prontas
-                  </span>
-                </div>
-              </div>
-
-              {/* Card 2: Visualizador Slide a Slide do Carrossel */}
-              <div className="p-6 rounded-bento bg-surface border border-border-subtle shadow-suave space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-border-subtle">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-accent-primary/20 text-accent-glow flex items-center justify-center">
-                      <Layers className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-text-main">
-                        Estrutura Slide a Slide do Carrossel
-                      </h4>
-                      <span className="text-[10px] text-text-muted font-mono block">
-                        Hierarquia de Títulos, Corpo e Direção de Arte
-                      </span>
-                    </div>
-                  </div>
-
-                  <span className="text-xs font-mono text-accent-glow">
-                    Slide {activeSlideIndex + 1} de {currentBriefing.slides.length}
-                  </span>
-                </div>
-
-                {/* Seletor de Abas de Slides */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  {currentBriefing.slides.map((s, idx) => (
-                    <button
-                      key={s.slide_number}
-                      onClick={() => setActiveSlideIndex(idx)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border",
-                        activeSlideIndex === idx
-                          ? "bg-accent-primary text-white border-accent-glow shadow-sm shadow-accent-primary/25"
-                          : "bg-canvas text-text-muted hover:text-text-main border-border-subtle"
-                      )}
-                    >
-                      {s.role === 'CAPA' ? 'Capa' : s.role === 'CTA_FINAL' ? 'CTA Final' : `Slide ${s.slide_number}`}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Visualização do Slide Ativo */}
-                {(() => {
-                  const slide = currentBriefing.slides[activeSlideIndex] || currentBriefing.slides[0];
-                  return (
-                    <div className="p-5 rounded-2xl bg-canvas/90 border border-border-subtle/80 space-y-3 relative overflow-hidden">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface border border-border-subtle text-accent-glow font-bold uppercase">
-                          Função: {slide.role}
-                        </span>
-                        <span className="text-text-muted text-[10px] font-mono">
-                          {slide.layers?.length || 4} Camadas no Photoshop
-                        </span>
-                      </div>
-
-                      <div>
-                        <span className="text-[10px] font-mono text-text-muted uppercase tracking-wider block">
-                          Headline / Título Principal:
-                        </span>
-                        <h5 className="text-base font-extrabold text-text-main leading-snug mt-0.5">
-                          {slide.headline}
-                        </h5>
-                      </div>
-
-                      <div>
-                        <span className="text-[10px] font-mono text-text-muted uppercase tracking-wider block">
-                          Texto de Apoio / Conteúdo:
-                        </span>
-                        <p className="text-xs text-text-muted mt-0.5 leading-relaxed">
-                          {slide.body_text}
-                        </p>
-                      </div>
-
-                      <div className="pt-2 border-t border-border-subtle/50">
-                        <span className="text-[10px] font-mono text-accent-glow uppercase tracking-wider block">
-                          Direção Visual / Assets:
-                        </span>
-                        <p className="text-xs text-text-main/90 italic mt-0.5">
-                          "{slide.visual_direction}"
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Card 3: Paleta Cromática Interativa & Tipografia */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
-                {/* Paleta Hex */}
-                <div className="p-5 rounded-bento bg-surface border border-border-subtle space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-text-main flex items-center gap-1.5">
-                      <Palette className="w-3.5 h-3.5 text-accent-glow" />
-                      Paleta Cromática (Clique p/ copiar)
-                    </span>
-                    <span className="text-[10px] font-mono text-text-muted">HEX</span>
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-2">
-                    {[
-                      { label: 'Canvas', hex: currentBriefing.color_palette.background },
-                      { label: 'Texto', hex: currentBriefing.color_palette.text },
-                      { label: 'Acento', hex: currentBriefing.color_palette.primary_accent },
-                      { label: 'Glow', hex: currentBriefing.color_palette.glow_accent },
-                    ].map((c) => (
-                      <button
-                        key={c.label}
-                        type="button"
-                        onClick={() => handleCopyColor(c.hex)}
-                        className="p-2 rounded-xl bg-canvas border border-border-subtle hover:border-accent-glow/50 transition-all flex flex-col items-center gap-1.5 cursor-pointer group"
-                        title={`Copiar ${c.hex}`}
-                      >
-                        <span
-                          className="w-8 h-8 rounded-lg border border-border-subtle shadow-inner group-hover:scale-105 transition-transform"
-                          style={{ backgroundColor: c.hex }}
-                        />
-                        <span className="text-[10px] font-mono text-text-main font-semibold">
-                          {copiedHex === c.hex ? '✓ Copiado' : c.hex}
-                        </span>
-                        <span className="text-[9px] text-text-muted font-mono">{c.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Tipografia */}
-                <div className="p-5 rounded-bento bg-surface border border-border-subtle space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-text-main flex items-center gap-1.5">
-                      <Type className="w-3.5 h-3.5 text-accent-glow" />
-                      Recomendação Tipográfica
-                    </span>
-                    <span className="text-[10px] font-mono text-text-muted">Fonts</span>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-canvas border border-border-subtle space-y-2 text-xs">
-                    <div>
-                      <span className="text-[10px] font-mono text-text-muted block">Família de Título:</span>
-                      <strong className="text-text-main font-bold block">{currentBriefing.typography.heading_font}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-mono text-text-muted block">Família de Corpo:</span>
-                      <strong className="text-text-main font-medium block">{currentBriefing.typography.body_font}</strong>
-                    </div>
-                    <p className="text-[10px] text-text-muted italic pt-1 border-t border-border-subtle/50">
-                      {currentBriefing.typography.notes}
-                    </p>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Card 4: Legenda Completa com Hashtags */}
-              <div className="p-6 rounded-bento bg-surface border border-border-subtle shadow-suave space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-accent-glow/15 text-accent-glow flex items-center justify-center">
-                      <Copy className="w-4 h-4" />
-                    </div>
-                    <h4 className="text-sm font-bold text-text-main">
-                      Legenda Completa para Redes Sociais
-                    </h4>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleCopyCaption}
-                    className="px-3 py-1.5 rounded-xl bg-canvas hover:bg-accent-primary hover:text-white text-accent-glow border border-border-subtle text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
-                  >
-                    {copiedCaption ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-700" />
-                        <span>Copiado!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copiar Legenda</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-canvas/80 border border-border-subtle text-xs text-text-main font-sans leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto">
-                  {currentBriefing.caption}
-                </div>
-
-                {/* Hashtags */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {currentBriefing.hashtags.map((ht) => (
-                    <span
-                      key={ht}
-                      className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-canvas border border-border-subtle text-accent-glow"
-                    >
-                      {ht}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-            </div>
-          ) : (
-            <div className="p-12 rounded-bento bg-surface border border-dashed border-border-subtle text-center space-y-3">
-              <Lightbulb className="w-8 h-8 text-accent-glow mx-auto opacity-70 animate-pulse" />
-              <h4 className="text-base font-bold text-text-main">{isGenerating ? 'Criando o briefing…' : 'Pronto para criar'}</h4>
-              <p className="text-xs text-text-muted max-w-sm mx-auto leading-relaxed">
-                Escolha o cliente, o formato e o objetivo, conte o que você quer e toque em “Gerar briefing com IA”.
-              </p>
-            </div>
-          )}
-        </div>
-
+        <section ref={resultPanel} className="copilot-output" aria-label="Prévia e roteiro" aria-busy={busy}>
+          {currentResult
+            ? <BriefingResult key={currentResult.id} briefing={currentResult} busy={busy}
+                onVariation={() => void generate(currentResult.magnetic_hook)} abrirPost={abrirPost} />
+            : <PreviewPlaceholder busy={busy} format={format} />}
+        </section>
       </div>
-
-      {/* Toast de Feedback Notificacional Suave */}
-      <Toast
-        isOpen={toastState.isOpen}
-        message={toastState.message}
-        type={toastState.type}
-        onClose={() => setToastState((prev) => ({ ...prev, isOpen: false }))}
-      />
     </div>
   );
-};
+}

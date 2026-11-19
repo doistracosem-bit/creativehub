@@ -119,9 +119,7 @@ export type UpdateReferenceInput = Partial<CreateReferenceInput>;
 // BRIEFING & AI COPILOT TYPES (Bloco 4: Motor de IA e Automação de Design)
 // ==============================================================================
 
-export type BriefingFormat = 'CARROSSEL_4x5' | 'STORY_9x16' | 'POST_1x1';
-
-export type BriefingGoal = 'Autoridade' | 'Vendas' | 'Educativo' | 'Engajamento' | 'Lançamento' | 'Rebranding' | 'Vendas/Black Friday';
+import type { BriefingFormat, BriefingGoal } from '../../supabase/functions/_shared/briefing';
 
 export interface SlideItem {
   slide_number: number;
@@ -143,12 +141,12 @@ export interface DesignBriefing {
   format: BriefingFormat;
   goal: BriefingGoal;
   magnetic_hook: string;
-  /** Ganchos alternativos sugeridos pela IA */
-  alternative_hooks?: string[];
-  /** Por que essa abordagem funciona (explicação curta da IA) */
-  strategy?: string;
-  /** Nome do cliente para quem o briefing foi feito */
-  client_name?: string | null;
+  alternative_hooks: string[];
+  client: string;
+  projectId: string | null;
+  model: string | null;
+  strategy: string;
+  call_to_action: string;
   color_palette: {
     background: string;
     text: string;
@@ -174,19 +172,4 @@ export interface DesignBriefing {
     layers_tree: Record<string, unknown>[];
   };
   created_at: string;
-}
-
-export interface BriefingParams {
-  niche: string;
-  format: BriefingFormat;
-  goal: BriefingGoal;
-  referenceImageUrl?: string;
-  userPrompt: string;
-  /** Contexto real do cliente para a IA não ser genérica */
-  cliente?: { name: string; niche?: string; instagram?: string | null; notes?: string | null } | null;
-  projeto?: string | null;
-  postsRecentes?: string[];
-  referencias?: string[];
-  /** Pede uma versão com ângulo diferente */
-  variacao?: boolean;
 }
