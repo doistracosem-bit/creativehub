@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { supabase, isMockMode } from '../lib/supabase';
+import { googleSignInEnabled, supabase, isMockMode } from '../lib/supabase';
 import type { TeamRole } from '../types';
 
 export interface Usuario {
@@ -78,6 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
     },
     async entrarGoogle() {
+      if (!await googleSignInEnabled()) throw new Error('Google provider is not enabled');
       const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
       if (error) throw error;
     },

@@ -27,6 +27,12 @@ Falta só você fazer, no painel do Supabase, em **Authentication → URL Config
 - **Redirect URLs:** o mesmo endereço e `http://localhost:5173`.
 - Se não quiser exigir confirmação de e-mail no primeiro acesso: **Authentication → Providers → Email → desligar "Confirm email"**.
 
+### Ativar login com Google
+
+No Google Auth Platform, configure um cliente OAuth do tipo **Aplicativo da Web**. Use `https://creativehub-pied.vercel.app` como origem JavaScript e `https://epeuikrywfsgpdvepdrx.supabase.co/auth/v1/callback` como URI de redirecionamento. Cadastre o ID e o segredo somente em **Supabase → Authentication → Sign In / Providers → Google** e ative o provedor. A equipe deve usar o mesmo e-mail cadastrado no Creative Hub.
+
+[Configuração oficial do Google no Supabase](https://supabase.com/docs/guides/auth/social-sign-in/auth-google)
+
 ## Passo 1. Publicar o app na Vercel
 
 1. Suba a pasta `creative-hub` para um repositório no GitHub (o arquivo `.env` **não** vai junto, e é assim mesmo).

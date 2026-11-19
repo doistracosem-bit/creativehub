@@ -28,3 +28,17 @@ export const supabase: SupabaseClient = isSupabaseConfigured
       'https://resilient-mock.supabase.co',
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.resilient_mock_anon_key_for_development'
     );
+
+export async function googleSignInEnabled(): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const settings = new URL('auth/v1/settings', `${supabaseUrl.replace(/\/+$/, '')}/`);
+  const response = await fetch(settings, {
+    headers: { apikey: supabaseAnonKey },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw new Error('Não foi possível consultar os métodos de login.');
+  const config: { external?: { google?: boolean } } = await response.json();
+  if (typeof config.external?.google !== 'boolean') throw new Error('Métodos de login indisponíveis.');
+  return config.external.google;
+}
