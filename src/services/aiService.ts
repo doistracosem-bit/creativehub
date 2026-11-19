@@ -4,7 +4,8 @@ import type { DesignBriefing, SlideItem } from '../types';
 import { FORMATS, parseContent } from '../../supabase/functions/_shared/briefing';
 import type { BriefingContent, RequestContext } from '../../supabase/functions/_shared/briefing';
 
-type BriefingIdentity = Pick<RequestContext, 'requestId' | 'niche' | 'format' | 'goal' | 'client'> & { projectId: string | null };
+type BriefingIdentity = Pick<RequestContext, 'requestId' | 'niche' | 'format' | 'goal' | 'client' | 'visualStyle' | 'reference'> &
+  { projectId: string | null };
 
 export function createBriefing(context: BriefingIdentity, content: BriefingContent, model: string | null): DesignBriefing {
   const { requestId, niche, format, goal, client, projectId } = context;
@@ -30,6 +31,8 @@ export function createBriefing(context: BriefingIdentity, content: BriefingConte
   return {
     ...content,
     id: requestId, niche, format, goal, client, projectId, model, slides,
+    visual_style: context.visualStyle,
+    reference_title: context.reference?.title,
     created_at: new Date().toISOString(),
     photoshop_metadata: {
       dimensions: { width, height, dpi: 300 },
@@ -77,6 +80,7 @@ export function exportPhotoshopJson(briefing: DesignBriefing): void {
       format: briefing.format, goal: briefing.goal, created_at: briefing.created_at,
       model: briefing.model, strategy: briefing.strategy, call_to_action: briefing.call_to_action,
       alternative_hooks: briefing.alternative_hooks,
+      visual_style: briefing.visual_style, reference_title: briefing.reference_title,
     },
     specs: briefing.photoshop_metadata.dimensions,
     palette: briefing.color_palette,

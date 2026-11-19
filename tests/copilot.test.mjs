@@ -13,6 +13,9 @@ const context = {
   niche: 'Livraria de bairro', format: 'CARROSSEL_4x5', goal: 'Educativo',
   client: '', audience: 'Moradores do bairro', prompt: 'Crie um convite para uma troca de livros.',
   image,
+  visualStyle: 'Moderno',
+  reference: { title: 'Cartaz de cinema', notes: 'Grid e margens amplas', kind: 'post', style: 'Moderno', palette: ['#123456'] },
+  referenceImage: image,
 };
 
 test('validates creative input and the uploaded image type', () => {
@@ -20,6 +23,7 @@ test('validates creative input and the uploaded image type', () => {
   assert.throws(() => parseRequest({ ...context, niche: '' }), /Tamanho/);
   assert.throws(() => parseRequest({ ...context, format: '__proto__' }), /Contexto/);
   assert.throws(() => parseRequest({ ...context, image: { ...image, mimeType: 'image/jpeg' } }), /Assinatura/);
+  assert.throws(() => parseRequest({ ...context, reference: undefined }), /sem referência/);
 });
 
 test('validates slide count for each format and rejects malformed model output', () => {
@@ -51,12 +55,14 @@ test('authenticates the team, sends only the current context and returns Gemini 
     assert.equal(url.search, '');
     assert.equal(options.headers['x-goog-api-key'], 'gemini-test-key');
     const body = JSON.parse(options.body);
-    const { requestId: _requestId, image, format: _format, ...creativeContext } = context;
+    const { requestId: _requestId, image, referenceImage, format: _format, ...creativeContext } = context;
     assert.equal(body.contents.length, 1);
     assert.deepEqual(JSON.parse(body.contents[0].parts[0].text), {
       ...creativeContext, format: 'Carrossel 4:5', width: 1080, height: 1350, slideCount: 5, hasImage: true,
     });
     assert.deepEqual(body.contents[0].parts[1].inlineData, image);
+    assert.match(body.contents[0].parts[2].text, /biblioteca/);
+    assert.deepEqual(body.contents[0].parts[3].inlineData, referenceImage);
     assert.equal(body.generationConfig.responseJsonSchema.properties.slides.minItems, 5);
     if (fallback && url.pathname.includes('gemini-test-model')) return new Response(null, { status: 404 });
     return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: providerText }] } }] });

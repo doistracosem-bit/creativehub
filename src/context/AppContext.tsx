@@ -37,6 +37,7 @@ interface AppContextType {
   updatePublication: (id: string, data: Partial<Publication>) => Promise<void>;
   deletePublication: (id: string) => Promise<void>;
   addReference: (input: Omit<CreateReferenceInput, 'image_url'>, image: File | string) => Promise<Reference>;
+  updateReference: (id: string, fields: Partial<Omit<CreateReferenceInput, 'image_url'>>, image?: File | string) => Promise<Reference>;
   addClient: (name: string, niche: string, extra?: Partial<Client>) => Client;
   updateClient: (id: string, patch: Partial<Client>) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
@@ -342,25 +343,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Ações: Referências
-  const addReference = async (fields: Omit<CreateReferenceInput, 'image_url'>, image: File | string): Promise<Reference> => {
-    const input = { ...fields, image_url: await saveReferenceImage(image, isMockMode) };
-    if (isMockMode) {
-      const now = new Date().toISOString();
-      const newRef: Reference = { ...input, id: crypto.randomUUID(), created_at: now, updated_at: now };
+  function saveDemoReferences(change: (stored: Reference[]) => Reference[]) {
       let stored = references;
       try {
         const cached = localStorage.getItem(STORAGE_KEYS.REFERENCES);
         if (cached) stored = JSON.parse(cached) as Reference[];
       } catch { /* O estado atual cobre um cache ausente ou inválido. */ }
 
-      const next = [newRef, ...stored];
+      const next = change(stored);
       try {
         localStorage.setItem(STORAGE_KEYS.REFERENCES, JSON.stringify(next));
       } catch {
         throw new Error('O armazenamento da demonstração está cheio. Use um link ou uma imagem menor.');
       }
       setReferences(next);
+  }
+
+  // Ações: Referências
+  const addReference = async (fields: Omit<CreateReferenceInput, 'image_url'>, image: File | string): Promise<Reference> => {
+    const input = { ...fields, image_url: await saveReferenceImage(image, isMockMode) };
+    if (isMockMode) {
+      const now = new Date().toISOString();
+      const newRef: Reference = { ...input, id: crypto.randomUUID(), created_at: now, updated_at: now };
+      saveDemoReferences((stored) => [newRef, ...stored]);
       return newRef;
     }
 
@@ -377,6 +382,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const created = data as Reference;
     setReferences((prev) => [created, ...prev]);
     return created;
+  };
+
+  const updateReference: AppContextType['updateReference'] = async (id, fields, image) => {
+    const current = references.find((item) => item.id === id);
+    if (!current) throw new Error('A referência não está mais disponível.');
+    const imageUrl = image ? await saveReferenceImage(image, isMockMode) : undefined;
+    const changes = imageUrl ? { ...fields, image_url: imageUrl } : fields;
+
+    if (isMockMode) {
+      const updated = { ...current, ...changes, updated_at: new Date().toISOString() };
+      saveDemoReferences((stored) => stored.map((item) => item.id === id ? updated : item));
+      return updated;
+    }
+
+    const { data, error } = await supabase.from('references').update(changes).eq('id', id).select().single();
+    if (error) {
+      if (imageUrl) await discardUnsavedReferenceImage(imageUrl).catch(() => undefined);
+      throw new Error('Não foi possível atualizar a referência. Tente novamente.');
+    }
+    const updated = data as Reference;
+    setReferences((previous) => previous.map((item) => item.id === id ? updated : item));
+    return updated;
   };
 
   // Ações: Clientes
@@ -486,6 +513,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePublication,
         deletePublication,
         addReference,
+        updateReference,
         addClient,
         updateClient,
         deleteClient,

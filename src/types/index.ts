@@ -78,11 +78,17 @@ export interface TeamMember {
 
 export interface AIInsights {
   color_palette?: string[];
+  palette_source?: 'image';
+  reference_kind?: ReferenceKind;
+  visual_style?: string;
+  source_url?: string;
   visual_weight?: string;
   typography?: string;
   key_takeaway?: string;
   [key: string]: unknown;
 }
+
+export type ReferenceKind = 'visual' | 'post';
 
 export interface Reference {
   id: string;
@@ -142,6 +148,8 @@ export interface DesignBriefing {
   goal: BriefingGoal;
   magnetic_hook: string;
   alternative_hooks: string[];
+  visual_style?: string;
+  reference_title?: string;
   client: string;
   projectId: string | null;
   model: string | null;

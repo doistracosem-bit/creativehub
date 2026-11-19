@@ -5,10 +5,13 @@ import { useApp } from '../../context/AppContext';
 import { useUI } from '../../context/UIContext';
 import { exampleContent } from '../../data/briefingExample';
 import { createBriefing, generateDesignBriefing, readReferenceImage } from '../../services/aiService';
+import { readLibraryReferenceImage } from '../../lib/referenceImages';
+import { briefingReferences, extractedReferencePalette, listReferenceStyles, referenceKind, referenceStyle } from '../../lib/references';
 import { FORMATS, GOALS, IMAGE_LIMIT, IMAGE_TYPES, normalizeNiche, parseRequest } from '../../../supabase/functions/_shared/briefing';
 import type { BriefingFormat, BriefingGoal } from '../../../supabase/functions/_shared/briefing';
 import type { DesignBriefing } from '../../types';
 import { BriefingResult, PreviewPlaceholder } from './BriefingResult';
+import { ReferenceImage } from './ReferenceImage';
 import './copilot.css';
 
 const niches = ['Odontologia', 'Moda Urbana', 'SaaS / Tech', 'Gastronomia', 'Fitness'];
@@ -23,9 +26,11 @@ export function AICopilotView() {
   const [goal, setGoal] = useState<BriefingGoal>('Autoridade');
   const [audience, setAudience] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [visualStyle, setVisualStyle] = useState('');
   const [referenceId, setReferenceId] = useState('');
   const [image, setImage] = useState<File | null>(null);
   const [error, setError] = useState('');
+  const [referenceNotice, setReferenceNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ briefing: DesignBriefing; contextKey: string } | null>(null);
   const request = useRef<AbortController | null>(null);
@@ -39,9 +44,11 @@ export function AICopilotView() {
   const uniqueClient = client && clients.filter((item) => item.name === client.name).length === 1;
   const clientProjects = uniqueClient ? projects.filter((item) => item.client_name === client.name) : [];
   const project = clientProjects.find((item) => item.id === projectId);
-  const availableReferences = niche ? references.filter((item) => normalizeNiche(item.niche) === normalizeNiche(niche)) : [];
-  const reference = availableReferences.find((item) => item.id === referenceId);
-  const contextKey = JSON.stringify([clientId, clientName, niche, client?.notes, project?.id, project?.project_name, reference?.id, reference?.title, reference?.notes]);
+  const available = briefingReferences(references, niche, visualStyle);
+  const reference = [...available.posts, ...available.visuals].find((item) => item.id === referenceId);
+  const styles = listReferenceStyles(references);
+  const contextKey = JSON.stringify([clientId, clientName, niche, client?.notes, project?.id, project?.project_name,
+    visualStyle, reference?.id, reference?.updated_at, reference?.title, reference?.notes, reference?.image_url]);
   const liveContext = useRef(contextKey);
   useLayoutEffect(() => {
     liveContext.current = contextKey;
@@ -61,6 +68,7 @@ export function AICopilotView() {
     setBusy(false);
     setResult(null);
     setError('');
+    setReferenceNotice('');
   }
 
   function clearImage() {
@@ -72,6 +80,7 @@ export function AICopilotView() {
     invalidate();
     setPrompt('');
     setAudience('');
+    setVisualStyle('');
     setReferenceId('');
     clearImage();
   }
@@ -106,11 +115,18 @@ export function AICopilotView() {
     setBusy(true);
     if (!previousHook) setResult(null);
     setError('');
+    setReferenceNotice('');
     const stillCurrent = () => request.current === controller && !controller.signal.aborted && liveContext.current === contextKey;
 
     try {
-      const attachment = image ? await readReferenceImage(image) : undefined;
+      const [attachment, libraryImage] = await Promise.all([
+        image ? readReferenceImage(image) : undefined,
+        reference?.image_url ? readLibraryReferenceImage(reference.image_url, controller.signal).catch(() => undefined) : undefined,
+      ]);
       if (!stillCurrent()) return;
+      if (reference && !libraryImage) {
+        setReferenceNotice('A referência será usada pelas notas e cores disponíveis. Para incluir a imagem, envie o arquivo pela biblioteca.');
+      }
       const context = parseRequest({
         requestId: crypto.randomUUID(), client: clientName, niche, format, goal, audience, prompt,
         project: project?.project_name.trim().slice(0, 160) || undefined,
@@ -119,8 +135,14 @@ export function AICopilotView() {
           .sort((a, b) => Date.parse(b.scheduled_for) - Date.parse(a.scheduled_for))
           .slice(0, 6).map((item) => item.headline.trim().slice(0, 150)) : undefined,
         previousHook,
-        reference: reference ? { title: reference.title.slice(0, 160), notes: reference.notes.slice(0, 1000) } : undefined,
+        visualStyle: visualStyle.trim() || undefined,
+        reference: reference ? {
+          title: reference.title.slice(0, 160), notes: (reference.notes ?? '').slice(0, 1000),
+          kind: referenceKind(reference), style: referenceStyle(reference).trim().slice(0, 80) || undefined,
+          palette: extractedReferencePalette(reference),
+        } : undefined,
         image: attachment,
+        referenceImage: libraryImage,
       });
       const briefing = await generateDesignBriefing(context, project?.id ?? null, controller.signal);
       if (stillCurrent()) setResult({ briefing, contextKey });
@@ -235,19 +257,45 @@ export function AICopilotView() {
               placeholder="Inclua o tema, a oferta ou mensagem, o tom e os detalhes que precisam aparecer." />
           </label>
 
-          <details className="copilot-references">
-            <summary><ImagePlus size={18} aria-hidden="true" /> Referência criativa <small>opcional</small></summary>
-            <div className="copilot-reference-fields">
-              {availableReferences.length > 0 && (
-                <div className="copilot-field">
-                  <label htmlFor="copilot-reference">Notas da biblioteca</label>
-                  <select id="copilot-reference" className="campo" value={reference?.id || ''}
-                    onChange={(event) => { invalidate(); setReferenceId(event.target.value); }}>
-                    <option value="">Nenhuma referência</option>
-                    {availableReferences.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-                  </select>
+          <label className="copilot-field">
+            <span>Estilo visual <small>opcional</small></span>
+            <input className="campo" list="copilot-styles" maxLength={80} value={visualStyle} placeholder="Ex. Moderno"
+              onChange={(event) => { invalidate(); setVisualStyle(event.target.value); setReferenceId(''); }} />
+            <datalist id="copilot-styles">{styles.map((option) => <option key={option} value={option} />)}</datalist>
+          </label>
+
+          {(available.posts.length > 0 || available.visuals.length > 0) ? (
+            <div className="copilot-field">
+              <label htmlFor="copilot-reference">Referência da biblioteca <small>opcional</small></label>
+              <select id="copilot-reference" className="campo" value={reference?.id || ''}
+                onChange={(event) => { invalidate(); setReferenceId(event.target.value); }}>
+                <option value="">Nenhuma referência</option>
+                {available.posts.length > 0 && (
+                  <optgroup label={visualStyle.trim() ? 'Posts neste estilo' : 'Posts'}>
+                    {available.posts.map((item) => <option key={item.id} value={item.id}>{item.title} · {referenceStyle(item)}</option>)}
+                  </optgroup>
+                )}
+                {available.visuals.length > 0 && (
+                  <optgroup label="Imagens visuais deste nicho">
+                    {available.visuals.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+                  </optgroup>
+                )}
+              </select>
+              {reference && (
+                <div className="flex items-center gap-3 rounded-xl border border-border-subtle bg-canvas p-2">
+                  <div className="w-14 h-14 shrink-0 rounded-lg overflow-hidden bg-surface">
+                    <ReferenceImage source={reference.image_url ?? ''} alt={reference.title} className="h-full w-full object-contain" />
+                  </div>
+                  <p className="break-words">{reference.title}<small className="block">{referenceStyle(reference) || 'Imagem visual'}</small></p>
                 </div>
               )}
+            </div>
+          ) : null}
+          {visualStyle.trim() && !available.posts.length && <small>Nenhum post da biblioteca corresponde a este estilo.</small>}
+
+          <details className="copilot-references">
+            <summary><ImagePlus size={18} aria-hidden="true" /> Anexar outra imagem <small>opcional</small></summary>
+            <div className="copilot-reference-fields">
               <label className="copilot-field">
                 <span>Imagem de referência</span>
                 <input className="campo copilot-upload" ref={fileInput} type="file" onChange={handleImage} accept={IMAGE_TYPES.join(',')} />
@@ -259,6 +307,7 @@ export function AICopilotView() {
             </div>
           </details>
 
+          {referenceNotice && <small role="status">{referenceNotice}</small>}
           {error && <p className="copilot-error" id="copilot-error" role="alert">{error}</p>}
           <button className="btn-primario copilot-submit" type="submit" disabled={busy || isMockMode}>
             <Sparkles size={18} aria-hidden="true" /> {busy ? 'Gerando briefing…' : 'Gerar briefing'}

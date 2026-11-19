@@ -82,6 +82,11 @@ export function BriefingResult({ briefing, abrirPost, onVariation, busy }: {
         <div>
           <p className="copilot-result-context">{[briefing.client, briefing.niche, briefing.goal].filter(Boolean).join(' · ')}</p>
           <h3>{briefing.campaign_title}</h3>
+          {(briefing.visual_style || briefing.reference_title) && (
+            <p className="copilot-result-context mt-2">
+              {[briefing.visual_style, briefing.reference_title && `Referência usada · ${briefing.reference_title}`].filter(Boolean).join(' / ')}
+            </p>
+          )}
         </div>
         <small>{briefing.model ? 'Gerado com Gemini' : 'Exemplo de demonstração'}</small>
       </div>

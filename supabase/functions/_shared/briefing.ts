@@ -7,10 +7,12 @@ export const FORMATS = {
 export const GOALS = ['Autoridade', 'Vendas', 'Educativo', 'Engajamento', 'Lançamento', 'Rebranding', 'Vendas/Black Friday'] as const;
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
 export const IMAGE_LIMIT = 3 * 1024 * 1024;
-export const BODY_LIMIT = Math.ceil(IMAGE_LIMIT / 3) * 4 + 64 * 1024;
+export const LIBRARY_IMAGE_LIMIT = 768 * 1024;
+export const BODY_LIMIT = Math.ceil((IMAGE_LIMIT + LIBRARY_IMAGE_LIMIT) / 3) * 4 + 64 * 1024;
 
 export type BriefingFormat = keyof typeof FORMATS;
 export type BriefingGoal = typeof GOALS[number];
+type InlineImage = { mimeType: string; data: string };
 export type RequestContext = {
   requestId: string;
   niche: string;
@@ -23,8 +25,10 @@ export type RequestContext = {
   brandNotes?: string;
   recentPosts?: string[];
   previousHook?: string;
-  reference?: { title: string; notes: string };
-  image?: { mimeType: string; data: string };
+  visualStyle?: string;
+  reference?: { title: string; notes: string; kind?: 'post' | 'visual'; style?: string; palette?: string[] };
+  image?: InlineImage;
+  referenceImage?: InlineImage;
 };
 
 export type BriefingContent = {
@@ -56,6 +60,22 @@ function field(value: unknown, min: number, max: number): string {
   return clean;
 }
 
+function parseImage(value: unknown, maxSize: number): InlineImage {
+  const { mimeType, data } = record(value);
+  if (!IMAGE_TYPES.some((type) => type === mimeType) || typeof mimeType !== 'string' ||
+      typeof data !== 'string' || !data || data.length > maxSize / 3 * 4 ||
+      data.length % 4 !== 0 || !/^[A-Za-z\d+/]+={0,2}$/.test(data)) {
+    throw new Error('Imagem inválida.');
+  }
+  const signature = atob(data.slice(0, 16));
+  const valid =
+    (mimeType === 'image/png' && signature.startsWith('\x89PNG\r\n\x1a\n')) ||
+    (mimeType === 'image/jpeg' && signature.startsWith('\xff\xd8\xff')) ||
+    (mimeType === 'image/webp' && signature.startsWith('RIFF') && signature.slice(8) === 'WEBP');
+  if (!valid) throw new Error('Assinatura da imagem inválida.');
+  return { mimeType, data };
+}
+
 export function parseRequest(value: unknown): RequestContext {
   const input = record(value);
   const requestId = field(input.requestId, 36, 36);
@@ -74,6 +94,7 @@ export function parseRequest(value: unknown): RequestContext {
   if (input.project !== undefined) context.project = field(input.project, 1, 160);
   if (input.brandNotes !== undefined) context.brandNotes = field(input.brandNotes, 1, 1200);
   if (input.previousHook !== undefined) context.previousHook = field(input.previousHook, 1, 150);
+  if (input.visualStyle !== undefined) context.visualStyle = field(input.visualStyle, 1, 80);
   if (input.recentPosts !== undefined) {
     if (!Array.isArray(input.recentPosts) || input.recentPosts.length > 6) throw new Error('Histórico inválido.');
     context.recentPosts = input.recentPosts.map((item) => field(item, 1, 150));
@@ -82,22 +103,22 @@ export function parseRequest(value: unknown): RequestContext {
   if (input.reference !== undefined) {
     const reference = record(input.reference);
     context.reference = { title: field(reference.title, 1, 160), notes: field(reference.notes, 0, 1000) };
+    if (reference.kind === 'post' || reference.kind === 'visual') context.reference.kind = reference.kind;
+    if (reference.style !== undefined) context.reference.style = field(reference.style, 1, 80);
+    if (reference.palette !== undefined) {
+      if (!Array.isArray(reference.palette) || reference.palette.length > 5) throw new Error('Paleta inválida.');
+      context.reference.palette = reference.palette.map((item) => {
+        const color = field(item, 7, 7).toUpperCase();
+        if (!/^#[\dA-F]{6}$/.test(color)) throw new Error('Cor inválida.');
+        return color;
+      });
+    }
   }
 
-  if (input.image !== undefined) {
-    const { mimeType, data } = record(input.image);
-    if (!IMAGE_TYPES.some((type) => type === mimeType) || typeof mimeType !== 'string' ||
-        typeof data !== 'string' || !data || data.length > IMAGE_LIMIT / 3 * 4 ||
-        data.length % 4 !== 0 || !/^[A-Za-z\d+/]+={0,2}$/.test(data)) {
-      throw new Error('Imagem inválida.');
-    }
-    const signature = atob(data.slice(0, 16));
-    const valid =
-      (mimeType === 'image/png' && signature.startsWith('\x89PNG\r\n\x1a\n')) ||
-      (mimeType === 'image/jpeg' && signature.startsWith('\xff\xd8\xff')) ||
-      (mimeType === 'image/webp' && signature.startsWith('RIFF') && signature.slice(8) === 'WEBP');
-    if (!valid) throw new Error('Assinatura da imagem inválida.');
-    context.image = { mimeType, data };
+  if (input.image !== undefined) context.image = parseImage(input.image, IMAGE_LIMIT);
+  if (input.referenceImage !== undefined) {
+    if (!context.reference) throw new Error('Imagem da biblioteca sem referência.');
+    context.referenceImage = parseImage(input.referenceImage, LIBRARY_IMAGE_LIMIT);
   }
 
   return context;

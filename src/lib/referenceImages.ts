@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import { dominantColors } from './referencePalette';
+import { LIBRARY_IMAGE_LIMIT } from '../../supabase/functions/_shared/briefing';
 
 const bucketName = 'reference-images';
 const storagePrefix = `storage:${bucketName}/`;
@@ -68,4 +70,55 @@ export async function downloadReferenceImage(path: string, signal: AbortSignal):
 export async function discardUnsavedReferenceImage(source: string) {
   const path = storedReferenceImagePath(source);
   if (path) await supabase.storage.from(bucketName).remove([path]);
+}
+
+async function referenceCanvas(source: File | string, maxSide: number, signal: AbortSignal) {
+  const path = typeof source === 'string' ? storedReferenceImagePath(source) : null;
+  let blob: Blob;
+  if (source instanceof File) blob = source;
+  else if (path) blob = await downloadReferenceImage(path, signal);
+  else {
+    const url = source.startsWith('data:image/') ? source : referenceImageLink(source);
+    const response = await fetch(url, { signal, credentials: 'omit' });
+    if (!response.ok) throw new Error('Imagem indisponível.');
+    blob = await response.blob();
+  }
+  signal.throwIfAborted();
+  if (!blob.size || blob.size > 15 * 1024 * 1024) throw new Error('Imagem fora do limite de análise.');
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    signal.throwIfAborted();
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('O navegador não conseguiu analisar a imagem.');
+    if (maxSide > 96) {
+      context.fillStyle = '#FFFFFF';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return { canvas, context };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+export async function extractReferencePalette(source: File | string) {
+  const { canvas, context } = await referenceCanvas(source, 96, AbortSignal.timeout(6000));
+  return dominantColors(context.getImageData(0, 0, canvas.width, canvas.height).data);
+}
+
+export async function readLibraryReferenceImage(source: string, signal: AbortSignal) {
+  const { canvas } = await referenceCanvas(source, 1280, AbortSignal.any([signal, AbortSignal.timeout(6000)]));
+  for (const quality of [0.85, 0.65, 0.45]) {
+    const data = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+    if (data && data.length <= LIBRARY_IMAGE_LIMIT / 3 * 4) return { mimeType: 'image/jpeg', data };
+  }
+  throw new Error('Não foi possível preparar a imagem para o Gemini.');
 }
