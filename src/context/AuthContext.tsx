@@ -1,7 +1,10 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { googleSignInEnabled, supabase, isMockMode } from '../lib/supabase';
 import type { TeamRole } from '../types';
+import { portalMemberships } from '../services/portalService';
+import type { PortalMembership } from '../services/portalService';
+import { forgetPortalLink, rememberPortalLink } from '../lib/portalLinks';
 
 export interface Usuario {
   id: string;
@@ -10,12 +13,13 @@ export interface Usuario {
   papel: TeamRole;
 }
 
-type Estado = 'carregando' | 'deslogado' | 'sem-acesso' | 'ok';
+type Estado = 'carregando' | 'deslogado' | 'sem-acesso' | 'ok' | 'cliente';
 
 interface AuthContextType {
   estado: Estado;
   usuario: Usuario | null;
   emailLogado: string | null;
+  empresas: PortalMembership[];
   entrarEmail: (email: string, senha: string) => Promise<void>;
   criarConta: (email: string, senha: string, nome: string) => Promise<void>;
   recuperarSenha: (email: string) => Promise<void>;
@@ -32,12 +36,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [estado, setEstado] = useState<Estado>(isMockMode ? 'ok' : 'carregando');
   const [usuario, setUsuario] = useState<Usuario | null>(isMockMode ? USUARIO_DEMO : null);
   const [sessao, setSessao] = useState<Session | null>(null);
+  const [empresas, setEmpresas] = useState<PortalMembership[]>([]);
+  const lookup = useRef(0);
 
   const verificarMembro = useCallback(async (s: Session | null) => {
-    if (!s?.user?.email) { setUsuario(null); setEstado('deslogado'); return; }
+    const request = ++lookup.current;
+    if (!s?.user?.email) { setUsuario(null); setEmpresas([]); setEstado('deslogado'); return; }
     const email = s.user.email.toLowerCase();
     const { data, error } = await supabase.from('team_members').select('email,name,role').eq('email', email).maybeSingle();
-    if (error || !data) { setUsuario(null); setEstado('sem-acesso'); return; }
+    if (request !== lookup.current) return;
+    if (error || !data) {
+      let memberships: PortalMembership[];
+      try { memberships = await portalMemberships(); } catch { memberships = []; }
+      if (request !== lookup.current) return;
+      setUsuario(null);
+      setEmpresas(memberships);
+      setEstado(memberships.length ? 'cliente' : 'sem-acesso');
+      return;
+    }
+    setEmpresas([]);
     setUsuario({
       id: s.user.id,
       email,
@@ -49,19 +66,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (isMockMode) return;
-    supabase.auth.getSession().then(({ data }) => { setSessao(data.session); verificarMembro(data.session); });
+    let active = true;
+    let timer = 0;
     const { data: sub } = supabase.auth.onAuthStateChange((_evento, s) => {
+      if (!active) return;
+      window.clearTimeout(timer);
+      lookup.current++;
       setSessao(s);
       // Evita chamar o banco dentro do callback do Supabase (recomendação da lib)
-      setTimeout(() => verificarMembro(s), 0);
+      timer = window.setTimeout(() => { if (active) void verificarMembro(s); }, 0);
     });
-    return () => sub.subscription.unsubscribe();
+    return () => { active = false; lookup.current++; window.clearTimeout(timer); sub.subscription.unsubscribe(); };
   }, [verificarMembro]);
 
   const valor: AuthContextType = {
     estado,
     usuario,
     emailLogado: sessao?.user?.email ?? null,
+    empresas,
     async entrarEmail(email, senha) {
       const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: senha });
       if (error) throw error;
@@ -79,10 +101,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     },
     async entrarGoogle() {
       if (!await googleSignInEnabled()) throw new Error('Google provider is not enabled');
+      rememberPortalLink();
       const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
       if (error) throw error;
     },
     async sair() {
+      forgetPortalLink();
       if (isMockMode) { localStorage.clear(); window.location.reload(); return; }
       await supabase.auth.signOut();
     },

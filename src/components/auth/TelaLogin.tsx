@@ -79,7 +79,7 @@ export const TelaLogin: React.FC = () => {
     <Moldura>
       <h1 className="text-2xl font-bold text-text-main">{titulo}</h1>
       <p className="text-sm text-text-muted mt-1 mb-7">
-        {modo === 'criar' ? 'Use o e-mail que o admin cadastrou na equipe.' : 'Entre para ver os projetos e o calendário da equipe.'}
+        {modo === 'criar' ? 'Use o e-mail cadastrado pela Dois Traços.' : 'Entre para acessar seu espaço no Creative Hub.'}
       </p>
 
       {modo !== 'recuperar' && (
@@ -139,7 +139,7 @@ export const TelaSemAcesso: React.FC = () => {
       <img src={MARCA.mascote} alt="" className="h-40 w-auto mb-6 lg:hidden" />
       <h1 className="text-2xl font-bold text-text-main">Acesso ainda não liberado</h1>
       <p className="text-sm text-text-muted mt-2 mb-7">
-        O e-mail <b className="text-text-main">{emailLogado}</b> ainda não está na equipe. Peça para um admin adicionar você em <b className="text-text-main">Equipe</b> e toque em “Tentar de novo”.
+        O e-mail <b className="text-text-main">{emailLogado}</b> ainda não tem acesso nesta sessão. Se você é cliente, entre com Google usando o e-mail cadastrado pela Dois Traços.
       </p>
       <div className="space-y-2">
         <button className="btn-primario w-full" onClick={() => recarregar()}>Tentar de novo</button>

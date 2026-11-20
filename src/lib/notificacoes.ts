@@ -33,7 +33,7 @@ function base64ParaUint8(base64: string) {
 }
 
 /** Pede permissão e registra este aparelho para receber os lembretes */
-export async function ativarNotificacoes(email: string): Promise<ResultadoAtivacao> {
+export async function ativarNotificacoes(email: string, portal = false): Promise<ResultadoAtivacao> {
   try {
     if (!('Notification' in window)) return ehIOS() && !estaInstalado() ? 'precisa-instalar' : 'indisponivel';
     const perm = await Notification.requestPermission();
@@ -50,9 +50,9 @@ export async function ativarNotificacoes(email: string): Promise<ResultadoAtivac
     const sub = (await reg.pushManager.getSubscription())
       || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64ParaUint8(VAPID_PUBLICA) }));
     const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
-    const { error } = await supabase.from('push_subscriptions').upsert({
+    const { error } = await supabase.from(portal ? 'portal_devices' : 'push_subscriptions').upsert({
       endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth,
-      email: email.toLowerCase(), user_agent: navigator.userAgent.slice(0, 200),
+      email: email.toLowerCase(), ...(portal ? {} : { user_agent: navigator.userAgent.slice(0, 200) }),
     }, { onConflict: 'endpoint' });
     if (error) throw error;
     return 'ok';

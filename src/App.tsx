@@ -17,9 +17,11 @@ import { UIContext } from './context/UIContext';
 import { useApp } from './context/AppContext';
 import { useAuth } from './context/AuthContext';
 import { useLembretesLocais } from './lib/notificacoes';
+import { readPortalLink } from './lib/portalLinks';
 
-const ABAS: NavTab[] = ['dashboard', 'calendar', 'projects', 'clients', 'references', 'ai-copilot', 'traffic', 'settings'];
+const ABAS: NavTab[] = ['dashboard', 'calendar', 'projects', 'clients', 'client-portal', 'references', 'ai-copilot', 'traffic', 'settings'];
 const TrafficIntelligenceView = lazy(() => import('./components/views/TrafficIntelligenceView'));
+const PortalTeamView = lazy(() => import('./components/views/portal/PortalTeamView'));
 
 export function App() {
   const { publications, isMockMode, error } = useApp();
@@ -27,9 +29,10 @@ export function App() {
 
   // Permite abrir direto numa aba/post (ex.: ao tocar na notificação: /?aba=calendar&post=ID)
   const params = new URLSearchParams(window.location.search);
+  const [portalTarget] = useState(readPortalLink);
   const [currentTab, setCurrentTab] = useState<NavTab>(() => {
     const a = params.get('aba') as NavTab | null;
-    return a && ABAS.includes(a) ? a : 'dashboard';
+    return portalTarget?.area === 'team' ? 'client-portal' : a && ABAS.includes(a) ? a : 'dashboard';
   });
   const [post, setPost] = useState<{ id: string | null; preset?: Partial<Publication> } | null>(() => {
     const id = params.get('post');
@@ -92,6 +95,11 @@ export function App() {
                 <ProjectsView onNewProject={() => setIsNewProjectOpen(true)} onOpenDetails={(p) => setProjetoAberto(p)} />
               )}
               {currentTab === 'clients' && <ClientsView />}
+              {currentTab === 'client-portal' && (
+                <Suspense fallback={<p className="cartao p-5 text-sm text-text-muted" role="status">Carregando Central de Clientes…</p>}>
+                  <PortalTeamView initial={portalTarget?.area === 'team' ? portalTarget : undefined} />
+                </Suspense>
+              )}
               {currentTab === 'references' && <ReferencesView />}
               {currentTab === 'ai-copilot' && <AICopilotView />}
               {currentTab === 'traffic' && (

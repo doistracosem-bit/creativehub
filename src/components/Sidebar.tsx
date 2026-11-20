@@ -1,6 +1,6 @@
 import React from 'react';
 import { useState } from 'react';
-import { Activity, LayoutDashboard, Calendar, FolderKanban, Sparkles, Image as ImageIcon, Users, LogOut, Plus, Contact, MoreHorizontal } from 'lucide-react';
+import { Activity, ClipboardCheck, LayoutDashboard, Calendar, FolderKanban, Sparkles, Image as ImageIcon, Users, LogOut, Plus, Contact, MoreHorizontal } from 'lucide-react';
 import { Folha } from './ui/Folha';
 import type { NavTab } from '../types';
 import { cn } from '../lib/utils';
@@ -19,6 +19,7 @@ const navItems: { id: NavTab; label: string; curto: string; icon: React.ElementT
   { id: 'calendar', label: 'Calendário', curto: 'Calendário', icon: Calendar },
   { id: 'projects', label: 'Projetos', curto: 'Projetos', icon: FolderKanban },
   { id: 'clients', label: 'Clientes', curto: 'Clientes', icon: Contact },
+  { id: 'client-portal', label: 'Central de Clientes', curto: 'Central', icon: ClipboardCheck },
   { id: 'ai-copilot', label: 'Copilot IA', curto: 'IA', icon: Sparkles },
   { id: 'traffic', label: 'Traffic Intelligence', curto: 'Tráfego', icon: Activity },
   { id: 'references', label: 'Referências', curto: 'Refs', icon: ImageIcon },

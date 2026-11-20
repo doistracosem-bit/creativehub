@@ -71,6 +71,16 @@ Documentação oficial do [modelo Gemini](https://aistudio.google.com/docs/model
 
 Os relatórios ficam no Supabase. O botão **Gerar recomendações** envia ao Gemini os indicadores, o período, a versão do playbook e as restrições da análise. Nomes de clientes e criativos e dados de contato ficam no Creative Hub. O módulo usa as permissões da equipe para clientes já cadastrados.
 
+## Central de Clientes
+
+A Central usa uma sessão verificada do Google. Em **Central de Clientes → Acessos**, um administrador cadastra o e-mail e a permissão. Os aprovadores também têm WhatsApp e a confirmação de que autorizaram o recebimento de avisos. Cada pessoa entra com o próprio e-mail usando **Continuar com Google**. Use **Avisos → Ativar avisos neste aparelho** para habilitar alertas com o app fechado.
+
+Use **Trazer post do calendário**, anexe a arte ou vídeo e monte um envio com prazo de resposta. Para posts antigos, use **Compartilhar no histórico** após anexar a versão final. A revisão final atualiza o post no calendário interno. **Marcar como publicado** registra a publicação feita pela equipe.
+
+Para instalar em outro ambiente, aplique as migrações `client_portal` e `client_portal_delivery` depois do esquema do Creative Hub e da configuração de lembretes. Publique a função `portal-avisos` com `--no-verify-jwt`. Ela valida o segredo do cron que já existe no cofre. O cron separado reutiliza as chaves VAPID do app.
+
+O WhatsApp precisa de um número remetente e modelos aprovados na conta WhatsApp Business da Dois Traços. Configure apenas nos segredos do Supabase `PORTAL_WHATSAPP_TOKEN`, `PORTAL_WHATSAPP_NUMBER_ID`, `PORTAL_WHATSAPP_GRAPH_VERSION`, `PORTAL_WHATSAPP_APPROVAL_TEMPLATE`, `PORTAL_WHATSAPP_REMINDER_TEMPLATE` e `PORTAL_WHATSAPP_REVISION_TEMPLATE`. Use modelos em português do Brasil com um parâmetro de texto no corpo e um botão de URL dinâmica com o domínio oficial seguido de `/?{{1}}`. A equipe registra seu número em **Meu WhatsApp**. Mensagens com mais de dois dias expiram na fila.
+
 ## Passo 3. Equipe usando
 
 1. Entre no app com o seu e-mail. A primeira vez é por **"Primeiro acesso"**, onde você cria a senha.
