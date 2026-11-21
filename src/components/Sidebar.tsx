@@ -1,6 +1,6 @@
 import React from 'react';
 import { useState } from 'react';
-import { Activity, ClipboardCheck, LayoutDashboard, Calendar, FolderKanban, Sparkles, Image as ImageIcon, Users, LogOut, Plus, Contact, MoreHorizontal } from 'lucide-react';
+import { Activity, Clapperboard, ClipboardCheck, LayoutDashboard, Calendar, FolderKanban, Sparkles, Image as ImageIcon, Users, LogOut, Plus, Contact, MoreHorizontal } from 'lucide-react';
 import { Folha } from './ui/Folha';
 import type { NavTab } from '../types';
 import { cn } from '../lib/utils';
@@ -22,6 +22,7 @@ const navItems: { id: NavTab; label: string; curto: string; icon: React.ElementT
   { id: 'client-portal', label: 'Central de Clientes', curto: 'Central', icon: ClipboardCheck },
   { id: 'ai-copilot', label: 'Copilot IA', curto: 'IA', icon: Sparkles },
   { id: 'traffic', label: 'Traffic Intelligence', curto: 'Tráfego', icon: Activity },
+  { id: 'tiktok', label: 'TikTok Viral Intelligence', curto: 'TikTok', icon: Clapperboard },
   { id: 'references', label: 'Referências', curto: 'Refs', icon: ImageIcon },
   { id: 'settings', label: 'Equipe e avisos', curto: 'Equipe', icon: Users },
 ];

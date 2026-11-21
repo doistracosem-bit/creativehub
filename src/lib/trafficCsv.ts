@@ -20,7 +20,7 @@ export const CSV_TEMPLATE = 'criativo;gasto;vendas;impressoes;cliques;entradas;q
 
 const normalize = (value: string) => value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-function rowsFromCsv(text: string, delimiter: string) {
+export function rowsFromCsv(text: string, delimiter: string) {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = '';

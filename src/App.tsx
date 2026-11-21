@@ -19,8 +19,9 @@ import { useAuth } from './context/AuthContext';
 import { useLembretesLocais } from './lib/notificacoes';
 import { readPortalLink } from './lib/portalLinks';
 
-const ABAS: NavTab[] = ['dashboard', 'calendar', 'projects', 'clients', 'client-portal', 'references', 'ai-copilot', 'traffic', 'settings'];
+const ABAS: NavTab[] = ['dashboard', 'calendar', 'projects', 'clients', 'client-portal', 'references', 'ai-copilot', 'traffic', 'tiktok', 'settings'];
 const TrafficIntelligenceView = lazy(() => import('./components/views/TrafficIntelligenceView'));
+const TikTokIntelligenceView = lazy(() => import('./components/views/TikTokIntelligenceView'));
 const PortalTeamView = lazy(() => import('./components/views/portal/PortalTeamView'));
 
 export function App() {
@@ -105,6 +106,11 @@ export function App() {
               {currentTab === 'traffic' && (
                 <Suspense fallback={<p className="cartao p-5 text-sm text-text-muted" role="status">Carregando Traffic Intelligence…</p>}>
                   <TrafficIntelligenceView />
+                </Suspense>
+              )}
+              {currentTab === 'tiktok' && (
+                <Suspense fallback={<p className="cartao p-5 text-sm text-text-muted" role="status">Carregando TikTok Viral Intelligence…</p>}>
+                  <TikTokIntelligenceView />
                 </Suspense>
               )}
               {currentTab === 'settings' && <SettingsView />}
